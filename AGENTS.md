@@ -122,6 +122,18 @@ nix eval .#packages.aarch64-linux.sjmcl.drvPath
 
 `nix flake check` 可选；它不会替代实际构建和冒烟测试。
 
+### 7. 自动更新
+
+`.github/workflows/auto-update.yml` 每天在 UTC 00:00 和 12:00 各执行一次 `scripts/auto-update.sh`，运行环境为 `nix develop`：
+
+- 通过 GitHub Releases API 获取 `omp`、`codex`、`sjmcl` 的最新 Tag 和资产 URL；
+- 用 `nix store prefetch-file` 实测两个平台的 SRI 哈希；
+- 改写 `default.nix` 中的 `version` 与 `if isAarch64 then ... else ...` 双哈希块；
+- 更新后始终构建 `omp` 和 `codex`，并构建任何其他发生变更的包；任一构建或冒烟测试失败则工作流终止，不提交；
+- 全部通过后提交 `chore: auto update binaries [skip ci]` 并推送到 `main`。
+
+脚本依赖 devShell 提供的 `gh`、`curl`、`jq`、`python3`、`git` 和 `nix`，workflow 不额外安装这些工具。表达式的 `version` 行和双哈希块布局是脚本的解析约定；修改布局时必须同步更新脚本。
+
 ## 已知包的约束
 
 ### omp
@@ -154,7 +166,7 @@ nix eval .#packages.aarch64-linux.sjmcl.drvPath
 - [ ] `nix build` 通过，并实际运行了包的 `--version`/冒烟命令。
 - [ ] aarch64 表达式求值通过（或已在 aarch64 机器上构建）。
 - [ ] `meta.platforms`、`mainProgram`、`license`、`sourceProvenance` 正确。
-- [ ] 未添加 GitHub Actions CI。
+- [ ] GitHub Actions 仅用于 Release 自动更新/构建验证，不引入源码构建 CI。
 - [ ] 没有提交 `result*` 链接、临时下载文件或 `lib.fakeHash`。
 
 ## 风格

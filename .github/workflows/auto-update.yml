@@ -1,0 +1,36 @@
+name: Auto update binaries
+
+on:
+  schedule:
+    # Twice a day: 00:00 and 12:00 UTC.
+    - cron: "0 0,12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Never let two updaters race on main.
+concurrency:
+  group: auto-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    # The commit step pushes to main; never run it from another ref.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Update packages, verify builds, commit and push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: nix develop --command bash scripts/auto-update.sh --commit
