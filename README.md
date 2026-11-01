@@ -108,7 +108,7 @@ nix-shell
 
 只跟随上游最新 Release Tag，不跟随 `main`。版本与哈希必须来自真实产物，更新后跑 `nix build` 验证。完整流程、Deb/AppImage 处理规则和验证命令写在 [AGENTS.md](./AGENTS.md)。
 
-`.github/workflows/auto-update.yml` 每天在 UTC 00:00 和 12:00 各运行一次自动更新：获取 `omp`、`codex`、`sjmcl` 的最新 Release，实测双平台哈希并改写表达式，构建验证通过后以 `chore: auto update binaries [skip ci]` 提交并推送到 `main`。验证失败时工作流终止，不提交任何内容。`command-code` 只有上游 x86_64 `.deb`，目前按 Release 手动更新。本地可手动执行：
+`.github/workflows/auto-update.yml` 每天在 UTC 00:00 和 12:00 各运行一次自动更新：获取 `omp`、`codex`、`sjmcl`、`command-code` 的最新 Release，实测哈希并改写版本号；`omp`/`codex`/`sjmcl` 更新双平台哈希，`command-code` 更新单平台 `.deb` 哈希。构建验证通过后以 `chore: auto update binaries [skip ci]` 提交并推送到 `main`。验证失败时工作流终止，不提交任何内容。本地可手动执行：
 
 ```sh
 nix develop --command bash scripts/auto-update.sh

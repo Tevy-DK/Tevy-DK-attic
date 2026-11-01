@@ -116,6 +116,43 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
 }
 
+# Single-platform packages have one release asset and one hash line:
+#
+#     hash = "sha256-...";
+update_single_nix_file() {
+  local file=$1 version=$2 hash=$3
+  python3 - "$file" "$version" "$hash" <<'PY'
+import re
+import sys
+
+path, version, hash = sys.argv[1:]
+
+with open(path, encoding="utf-8") as handle:
+    text = handle.read()
+
+text, count = re.subn(
+    r'^  version = "[^"]*";$',
+    f'  version = "{version}";',
+    text,
+    count=1,
+    flags=re.MULTILINE,
+)
+assert count == 1, f"expected one version line in {path}, found {count}"
+
+text, count = re.subn(
+    r'^(    hash = ")(sha256-[A-Za-z0-9+/=]+)(";$)$',
+    lambda match: match.group(1) + hash + match.group(3),
+    text,
+    count=1,
+    flags=re.MULTILINE,
+)
+assert count == 1, f"expected one single hash line in {path}, found {count}"
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(text)
+PY
+}
+
 update_package() {
   local pkg=$1 repo=$2 file=$3 tag_prefix=$4 arm_asset=$5 x86_asset=$6
   local json="$work/$pkg.json"
@@ -159,17 +196,74 @@ update_package() {
   changed_files+=("$file")
 }
 
+# Single-platform package: one release asset, one hash.
+update_single_package() {
+  local pkg=$1 repo=$2 file=$3 tag_prefix=$4 asset=$5
+  local json="$work/$pkg.json"
+  local tag latest current asset_name hash
+
+  echo "==> $pkg ($repo)"
+  github_api "$repo" >"$json"
+  tag=$(jq -er '.tag_name' "$json")
+
+  [[ $tag == "$tag_prefix"* ]] || {
+    echo "$pkg: tag '$tag' does not start with '$tag_prefix'" >&2
+    return 1
+  }
+  latest=${tag#"$tag_prefix"}
+  [[ -n $latest && $latest != */* ]] || {
+    echo "$pkg: invalid version parsed from tag '$tag'" >&2
+    return 1
+  }
+
+  current=$(current_version "$file")
+  if [[ $current == "$latest" ]]; then
+    echo "    already at $latest"
+    return 0
+  fi
+
+  # Do not silently downgrade a manually pinned newer version.
+  if [[ $(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1) == "$current" ]]; then
+    echo "    local version $current is newer than upstream $latest; keeping it"
+    return 0
+  fi
+
+  echo "    $current -> $latest"
+  asset_name=${asset//%VERSION%/$latest}
+  hash=$(sri_hash "$(asset_url "$json" "$asset_name")") || return 1
+
+  update_single_nix_file "$file" "$latest" "$hash"
+  changed_packages+=("$pkg")
+  changed_files+=("$file")
+}
+
 build_package() {
   local pkg=$1
   echo "==> nix build .#$pkg"
   nix build ".#$pkg" --out-link "result-$pkg" --print-build-logs
   # The aarch64 branch is not buildable on an x86_64 runner, but it must at
-  # least evaluate after the hash rewrite.
-  nix eval --raw ".#packages.aarch64-linux.$pkg.drvPath" >/dev/null
+  # least evaluate after the hash rewrite.  command-code is x86_64-only and
+  # meta.platforms rejects an aarch64 evaluation, so skip it.
+  if [[ $pkg != command-code ]]; then
+    nix eval --raw ".#packages.aarch64-linux.$pkg.drvPath" >/dev/null
+  fi
 
   case "$pkg" in
     omp) "./result-$pkg/bin/omp" --version ;;
     codex) "./result-$pkg/bin/codex" --version ;;
+    command-code)
+      # Electron GUI: a timeout after a successful launch is expected.
+      # --no-sandbox keeps the GitHub runner working where unprivileged user
+      # namespaces are restricted; the installed wrapper does not use it.
+      local status=0
+      xvfb-run -a timeout 15 "./result-$pkg/bin/command-code" \
+        --no-sandbox --disable-gpu --ozone-platform=x11 \
+        --enable-logging=stderr || status=$?
+      if ((status != 0 && status != 124)); then
+        echo "command-code failed to start (status $status)" >&2
+        return "$status"
+      fi
+      ;;
     sjmcl)
       # Tauri ignores --version as a dry-run and starts the GUI, so a timeout
       # after a successful launch is expected.  Any other non-zero status is a
@@ -193,6 +287,9 @@ update_package \
 update_package \
   sjmcl UNIkeEN/SJMCL pkgs/binaries/sjmcl/default.nix v \
   'SJMCL_%VERSION%_linux_aarch64_portable' 'SJMCL_%VERSION%_linux_x86_64_portable'
+update_single_package \
+  command-code CommandCodeAI/desktop pkgs/deb/command-code/default.nix v \
+  'CommandCode-%VERSION%-amd64.deb'
 
 if ((${#changed_packages[@]} == 0)); then
   echo "All packages are up to date."
