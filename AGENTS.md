@@ -136,6 +136,15 @@ nix eval .#packages.aarch64-linux.sjmcl.drvPath
 
 ## 已知包的约束
 
+### command-code
+
+- 上游只发布 `CommandCode-<version>-amd64.deb`，没有 Linux arm64 资产，`meta.platforms` 固定为 `x86_64-linux`。
+- Electron 应用：`dpkg-deb -x` 解包，`autoPatchelfHook` 修补随包的 ELF，`wrapGAppsHook3` 处理 GTK/GSettings/XDG 数据目录。
+- `.deb` 内包含所有平台的原生模块（`@lydell/node-pty-*`、`@parcel/watcher-*`、`@crosscopy/clipboard-*`）。`installPhase` 只保留 glibc x86_64 版本；其他架构的 ELF 会让 `autoPatchelfHook` 失败，其余平台文件是死重量。
+- 运行依赖 `libsecret`、`libnotify`、`libappindicator-gtk3`、`libXScrnSaver`、`libXtst`、`libdrm`、`libGL`、`vulkan-loader` 等，其中多数是 `dlopen`，不在 `DT_NEEDED` 里，必须放进 wrapper 的 `LD_LIBRARY_PATH`。
+- Chromium sandbox 依赖 NixOS 默认启用的 user namespaces；不要加 `--no-sandbox`。包装器只追加 `--ozone-platform-hint=auto`，让 niri/Wayland 走原生 Wayland。
+- 上游没有 aarch64 Linux 产物，自动更新脚本不覆盖此包；升级版本时同时更新 `version`、deb URL 和单一哈希。
+
 ### omp
 
 - 上游 `omp-linux-musl-*` **不是静态二进制**，动态依赖 musl 版 `libstdc++`/`libgcc`。

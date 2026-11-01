@@ -15,6 +15,7 @@
     in
     {
       packages = forAllSystems (system: {
+        command-code = (pkgsFor system).callPackage ./pkgs/deb/command-code { };
         omp = (pkgsFor system).callPackage ./pkgs/binaries/omp { };
         codex = (pkgsFor system).callPackage ./pkgs/binaries/codex { };
         sjmcl = (pkgsFor system).callPackage ./pkgs/binaries/sjmcl { };
@@ -23,6 +24,7 @@
       overlays.default =
         final: prev:
         prev.lib.optionalAttrs prev.stdenv.hostPlatform.isLinux {
+          command-code = final.callPackage ./pkgs/deb/command-code { };
           omp = final.callPackage ./pkgs/binaries/omp { };
           codex = final.callPackage ./pkgs/binaries/codex { };
           sjmcl = final.callPackage ./pkgs/binaries/sjmcl { };
