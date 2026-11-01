@@ -6,7 +6,7 @@
 
 | 属性 | 版本 | 上游 | 产物 | 平台 |
 | --- | --- | --- | --- | --- |
-| `omp` | 18.14.1 | [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi) | `omp-linux-{x64,arm64}` | `x86_64-linux`, `aarch64-linux` |
+| `omp` | 18.14.2 | [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi) | `omp-linux-{x64,arm64}` | `x86_64-linux`, `aarch64-linux` |
 | `codex` | 0.166.0 | [openai/codex](https://github.com/openai/codex) | `codex-{x86_64,aarch64}-unknown-linux-musl.tar.gz` | `x86_64-linux`, `aarch64-linux` |
 | `sjmcl` | 1.4.0 | [UNIkeEN/SJMCL](https://github.com/UNIkeEN/SJMCL) | `SJMCL_1.4.0_linux_{x86_64,aarch64}_portable` | `x86_64-linux`, `aarch64-linux` |
 
