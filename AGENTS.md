@@ -126,25 +126,14 @@ nix eval .#packages.aarch64-linux.sjmcl.drvPath
 
 `.github/workflows/auto-update.yml` 每天在 UTC 00:00 和 12:00 各执行一次 `scripts/auto-update.sh`，运行环境为 `nix develop`：
 
-- 通过 GitHub Releases API 获取 `omp`、`codex`、`sjmcl`、`command-code` 的最新 Tag 和资产 URL；
+- 通过 GitHub Releases API 获取 `omp`、`codex`、`sjmcl` 的最新 Tag 和资产 URL；
 - 双平台包（`omp`、`codex`、`sjmcl`）实测两个平台的 SRI 哈希，改写 `default.nix` 中的 `version` 与 `if isAarch64 then ... else ...` 双哈希块；
-- 单平台包（`command-code`）实测 `.deb` 的 SRI 哈希，改写 `version` 与单一 `hash = "...";` 行；x86_64-only 包跳过 aarch64 求值；
-- 更新后始终构建 `omp` 和 `codex`，并构建任何其他发生变更的包（含 `command-code` 的 Xvfb 启动冒烟测试）；任一构建或冒烟测试失败则工作流终止，不提交；
+- 更新后始终构建 `omp` 和 `codex`，并构建任何其他发生变更的包；任一构建或冒烟测试失败则工作流终止，不提交；
 - 全部通过后提交 `chore: auto update binaries [skip ci]` 并推送到 `main`。
 
 脚本依赖 devShell 提供的 `gh`、`curl`、`jq`、`python3`、`git` 和 `nix`，workflow 不额外安装这些工具。表达式的 `version` 行和双哈希块布局是脚本的解析约定；修改布局时必须同步更新脚本。
 
 ## 已知包的约束
-
-### command-code
-
-- 上游只发布 `CommandCode-<version>-amd64.deb`，没有 Linux arm64 资产，`meta.platforms` 固定为 `x86_64-linux`。
-- Electron 应用：`dpkg-deb -x` 解包，`autoPatchelfHook` 修补随包的 ELF，`wrapGAppsHook3` 处理 GTK/GSettings/XDG 数据目录。
-- `.deb` 内包含所有平台的原生模块（`@lydell/node-pty-*`、`@parcel/watcher-*`、`@crosscopy/clipboard-*`）。`installPhase` 只保留 glibc x86_64 版本；其他架构的 ELF 会让 `autoPatchelfHook` 失败，其余平台文件是死重量。
-- 运行依赖 `libsecret`、`libnotify`、`libappindicator-gtk3`、`libXScrnSaver`、`libXtst`、`libdrm`、`libGL`、`vulkan-loader` 等，其中多数是 `dlopen`，不在 `DT_NEEDED` 里，必须放进 wrapper 的 `LD_LIBRARY_PATH`。
-- Chromium sandbox 依赖 NixOS 默认启用的 user namespaces；不要加 `--no-sandbox`。包装器只追加 `--ozone-platform-hint=auto`，让 niri/Wayland 走原生 Wayland。
-- 自动更新脚本用 `update_single_package` 处理这个单平台、单哈希的包；升级时同时更新 `version`、deb URL 和哈希。
-- CI 冒烟测试用 Xvfb + `--no-sandbox --disable-gpu` 启动；`--no-sandbox` 仅用于 GitHub runner 受限的 user namespaces，不进入安装后的 wrapper。
 
 ### omp
 
