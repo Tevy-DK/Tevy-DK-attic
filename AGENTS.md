@@ -141,6 +141,7 @@ nix eval .#packages.aarch64-linux.sjmcl.drvPath
 - NixOS 是 glibc 环境。通过 `LD_LIBRARY_PATH` 注入 musl `libstdc++` 会污染 omp 派生的 glibc 子进程（实测 `node` 报 `no version information available` 并失败）。
 - 因此本包使用 `omp-linux-{x64,arm64}` glibc 资产，并用 `autoPatchelfHook` 修补 interpreter/RPATH。若上游未来发布真正静态的 musl 构建，再切换资产。
 - `autoPatchelfIgnoreMissingDeps` 中列出的 `ld-linux-*` 是 ELF interpreter，不是普通共享库。
+- omp 首次使用时会把本地推理运行时（`fastembed` + 预编译 `onnxruntime-node`/`tokenizers`）安装到 `~/.omp/cache`，这些 `.node`/`.so` 由 `dlopen` 加载、自带 `DT_RUNPATH`，依赖 glibc 版 `libstdc++.so.6`/`libgcc_s.so.1`。它们构建期不存在，`autoPatchelfHook` 无法修补，可执行文件自身的 RPATH 也不会用于解析 addon 的依赖。因此 launch wrapper 设置 `--set-default OMP_NATIVE_LIBRARY_PATH`（`stdenv.cc.cc.lib` + `libgcc`）：omp 只把这个值追加到推理 worker 子进程的 `LD_LIBRARY_PATH`，不会污染 bash/eval/daemon 派生的子进程。不要改成全局导出 `LD_LIBRARY_PATH`，更不要注入 musl 版 `libstdc++`。
 
 ### codex
 

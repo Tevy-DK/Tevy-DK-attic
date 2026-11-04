@@ -6,11 +6,11 @@
 
 | 属性 | 版本 | 上游 | 产物 | 平台 |
 | --- | --- | --- | --- | --- |
-| `omp` | 18.14.2 | [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi) | `omp-linux-{x64,arm64}` | `x86_64-linux`, `aarch64-linux` |
+| `omp` | 18.16.0 | [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi) | `omp-linux-{x64,arm64}` | `x86_64-linux`, `aarch64-linux` |
 | `codex` | 0.166.0 | [openai/codex](https://github.com/openai/codex) | `codex-{x86_64,aarch64}-unknown-linux-musl.tar.gz` | `x86_64-linux`, `aarch64-linux` |
 | `sjmcl` | 1.4.0 | [UNIkeEN/SJMCL](https://github.com/UNIkeEN/SJMCL) | `SJMCL_1.4.0_linux_{x86_64,aarch64}_portable` | `x86_64-linux`, `aarch64-linux` |
 
-`omp` 说明：上游的 `omp-linux-musl-*` 并非静态二进制，而是动态链接 musl 版 `libstdc++`/`libgcc`。在 NixOS（glibc 环境）上给进程注入 musl `libstdc++` 会破坏 omp 派生的 glibc 子进程，因此本仓库使用同一版本的 `omp-linux-*` glibc 资产。`codex` 的 musl 资产是真正的 static-pie，直接安装。
+`omp` 说明：上游的 `omp-linux-musl-*` 并非静态二进制，而是动态链接 musl 版 `libstdc++`/`libgcc`。在 NixOS（glibc 环境）上给进程注入 musl `libstdc++` 会破坏 omp 派生的 glibc 子进程，因此本仓库使用同一版本的 `omp-linux-*` glibc 资产。omp 首次使用时会把本地嵌入运行时（`fastembed` + 预编译 `onnxruntime-node`）安装到 `~/.omp/cache`，这些库由 `dlopen` 加载并需要 glibc 版 `libstdc++.so.6`；构建期无从修补，所以 launch wrapper 通过 `OMP_NATIVE_LIBRARY_PATH` 声明 `stdenv.cc.cc.lib`/`libgcc` 路径（omp 只把它注入推理 worker 子进程的 `LD_LIBRARY_PATH`），避免 `bge-base-en-v1.5 failed: libstdc++.so.6` 启动错误。`codex` 的 musl 资产是真正的 static-pie，直接安装。
 
 ## 使用
 

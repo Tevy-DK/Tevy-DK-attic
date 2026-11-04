@@ -3,6 +3,7 @@
   stdenv,
   fetchurl,
   autoPatchelfHook,
+  makeWrapper,
 }:
 
 # Upstream's omp-linux-musl-* assets are NOT static: they link musl's
@@ -35,7 +36,10 @@ stdenv.mkDerivation (finalAttrs: {
   # appended payload.
   dontStrip = true;
 
-  nativeBuildInputs = [ autoPatchelfHook ];
+  nativeBuildInputs = [
+    autoPatchelfHook
+    makeWrapper
+  ];
   buildInputs = [ stdenv.cc.cc.lib ];
 
   # The executable lists the ELF interpreter itself as a DT_NEEDED entry.  It
@@ -50,6 +54,48 @@ stdenv.mkDerivation (finalAttrs: {
     runHook preInstall
     install -Dm755 "$src" "$out/bin/omp"
     runHook postInstall
+  '';
+
+  # omp installs its local-inference runtime at first use (fastembed plus
+  # prebuilt onnxruntime-node/tokenizers binaries under ~/.omp/cache).  Those
+  # addons are dlopen'd, carry their own DT_RUNPATH, and need the glibc
+  # libstdc++.so.6/libgcc_s.so.1 that NixOS does not put on the default search
+  # path.  They never exist at build time, so autoPatchelfHook cannot patch
+  # them, and the executable's own RPATH is not consulted for an addon's
+  # dependencies.  omp reads OMP_NATIVE_LIBRARY_PATH and appends it to
+  # LD_LIBRARY_PATH for inference worker subprocesses only, which keeps the
+  # path out of the bash/eval/daemon children; --set-default leaves a user's
+  # own value in charge.
+  postFixup = ''
+    wrapProgram "$out/bin/omp" \
+      --set-default OMP_NATIVE_LIBRARY_PATH "${
+        lib.makeLibraryPath (
+          [ stdenv.cc.cc.lib ] ++ lib.optional (stdenv.cc.cc ? libgcc) stdenv.cc.cc.libgcc
+        )
+      }"
+  '';
+
+  # Prove the advertised runtime libraries actually load from that path, and
+  # that workers spawned through the wrapper still start.
+  doInstallCheck = true;
+  installCheckPhase = ''
+    runHook preInstallCheck
+    HOME=$TMPDIR $out/bin/omp --smoke-test | grep -q "smoke-test: ok"
+    env -u LD_LIBRARY_PATH HOME=$TMPDIR BUN_BE_BUN=1 $out/bin/omp -e '
+      const { dlopen } = require("bun:ffi");
+      const dirs = (process.env.OMP_NATIVE_LIBRARY_PATH || "").split(":").filter(Boolean);
+      const need = {
+        "libstdc++.so.6": { __cxa_demangle: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "ptr" } },
+        "libgcc_s.so.1": { _Unwind_Backtrace: { args: ["ptr", "ptr"], returns: "i32" } },
+      };
+      for (const lib of Object.keys(need)) {
+        if (!dirs.some((dir) => { try { dlopen(dir + "/" + lib, need[lib]); return true; } catch { return false; } })) {
+          console.error("unresolved: " + lib);
+          process.exit(1);
+        }
+      }
+    '
+    runHook postInstallCheck
   '';
 
   meta = {
