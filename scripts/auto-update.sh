@@ -99,17 +99,29 @@ text, count = re.subn(
 )
 assert count == 1, f"expected one version line in {path}, found {count}"
 
-hash_pattern = re.compile(
-    r'(if [^\n]*isAarch64 then\s*\n\s*")(sha256-[A-Za-z0-9+/=]+)'
-    r'("\s*\n\s*else\s*\n\s*")(sha256-[A-Za-z0-9+/=]+)(")'
-)
-text, count = hash_pattern.subn(
-    lambda match: (
-        match.group(1) + arm_hash + match.group(3) + x86_hash + match.group(5)
-    ),
-    text,
-)
-assert count == 1, f"expected one if-isAarch64 hash pair in {path}, found {count}"
+if arm_hash:
+    hash_pattern = re.compile(
+        r'(if [^\n]*isAarch64 then\s*\n\s*")(sha256-[A-Za-z0-9+/=]+)'
+        r'("\s*\n\s*else\s*\n\s*")(sha256-[A-Za-z0-9+/=]+)(")'
+    )
+    text, count = hash_pattern.subn(
+        lambda match: (
+            match.group(1) + arm_hash + match.group(3) + x86_hash + match.group(5)
+        ),
+        text,
+    )
+    assert count == 1, f"expected one if-isAarch64 hash pair in {path}, found {count}"
+else:
+    # Single-platform packages carry one plain `hash = "sha256-...";` line.
+    hash_pattern = re.compile(
+        r'^(\s*hash = ")(sha256-[A-Za-z0-9+/=]+)(";)$',
+        re.MULTILINE,
+    )
+    text, count = hash_pattern.subn(
+        lambda match: match.group(1) + x86_hash + match.group(3),
+        text,
+    )
+    assert count == 1, f"expected one hash line in {path}, found {count}"
 
 with open(path, "w", encoding="utf-8") as handle:
     handle.write(text)
@@ -148,11 +160,16 @@ update_package() {
   fi
 
   echo "    $current -> $latest"
-  arm_asset_name=${arm_asset//%VERSION%/$latest}
   x86_asset_name=${x86_asset//%VERSION%/$latest}
 
-  arm_hash=$(sri_hash "$(asset_url "$json" "$arm_asset_name")") || return 1
   x86_hash=$(sri_hash "$(asset_url "$json" "$x86_asset_name")") || return 1
+  if [[ $arm_asset == - ]]; then
+    # The package is x86_64-only; update_nix_file rewrites its single hash.
+    arm_hash=""
+  else
+    arm_asset_name=${arm_asset//%VERSION%/$latest}
+    arm_hash=$(sri_hash "$(asset_url "$json" "$arm_asset_name")") || return 1
+  fi
 
   update_nix_file "$file" "$latest" "$arm_hash" "$x86_hash"
   changed_packages+=("$pkg")
@@ -164,21 +181,28 @@ build_package() {
   echo "==> nix build .#$pkg"
   nix build ".#$pkg" --out-link "result-$pkg" --print-build-logs
   # The aarch64 branch is not buildable on an x86_64 runner, but it must at
-  # least evaluate after the hash rewrite.  Every packaged binary is
-  # dual-platform.
-  nix eval --raw ".#packages.aarch64-linux.$pkg.drvPath" >/dev/null
+  # least evaluate after the hash rewrite.  etcher has no arm64 Linux release,
+  # so its expression is x86_64-only.
+  if [[ $pkg != etcher ]]; then
+    nix eval --raw ".#packages.aarch64-linux.$pkg.drvPath" >/dev/null
+  fi
 
   case "$pkg" in
     omp) "./result-$pkg/bin/omp" --version ;;
     codex) "./result-$pkg/bin/codex" --version ;;
-    sjmcl)
-      # Tauri ignores --version as a dry-run and starts the GUI, so a timeout
-      # after a successful launch is expected.  Any other non-zero status is a
-      # startup failure.
-      local status=0
-      xvfb-run -a timeout 15 "./result-$pkg/bin/SJMCL" --version || status=$?
+    sjmcl | motrix | etcher)
+      # These GUI applications ignore --version as a dry-run and start the
+      # window instead, so a timeout after a successful launch is expected.
+      # Any other non-zero status is a startup failure.
+      local binary status=0
+      case "$pkg" in
+        sjmcl) binary=SJMCL ;;
+        motrix) binary=motrix ;;
+        etcher) binary=balena-etcher ;;
+      esac
+      xvfb-run -a timeout 15 "./result-$pkg/bin/$binary" --version || status=$?
       if ((status != 0 && status != 124)); then
-        echo "SJMCL failed to start (status $status)" >&2
+        echo "$pkg failed to start (status $status)" >&2
         return "$status"
       fi
       ;;
@@ -194,6 +218,14 @@ update_package \
 update_package \
   sjmcl UNIkeEN/SJMCL pkgs/binaries/sjmcl/default.nix v \
   'SJMCL_%VERSION%_linux_aarch64_portable' 'SJMCL_%VERSION%_linux_x86_64_portable'
+update_package \
+  motrix agalwood/Motrix pkgs/appimages/motrix/default.nix v \
+  'Motrix-%VERSION%-arm64.AppImage' 'Motrix-%VERSION%-x86_64.AppImage'
+# Upstream publishes only an amd64 Debian package; "-" means there is no arm64
+# asset and the expression has a single hash line.
+update_package \
+  etcher balena-io/etcher pkgs/deb/etcher/default.nix v \
+  - 'balena-etcher_%VERSION%_amd64.deb'
 
 if ((${#changed_packages[@]} == 0)); then
   echo "All packages are up to date."

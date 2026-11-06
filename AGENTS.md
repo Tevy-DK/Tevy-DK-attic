@@ -23,6 +23,7 @@
 - 只追踪上游 **最新 Release Tag**，绝不追踪 `main`、`master` 或提交哈希。
 - 使用 GitHub Releases API 或 `gh release view <tag>` 获取资产列表，不要猜文件名。
 - 版本更新必须同时更新 `version`、资产 URL 模式、每个平台的哈希。
+- 上游只发布 x86_64 资产时（如 `etcher`），表达式只保留一个 `hash = "sha256-...";` 行，并用 `meta.platforms` 限制平台；自动更新脚本用 `-` 占位表示缺失的 arm64 资产。
 - `flake.lock` 只固定 nixpkgs；升级 nixpkgs 后重新构建全部包。
 
 发现最新 Release：
@@ -110,7 +111,15 @@ nix build .#codex --out-link result-codex
 
 nix build .#sjmcl --out-link result-sjmcl
 xvfb-run -a timeout 15 ./result-sjmcl/bin/SJMCL --version
+
+nix build .#motrix --out-link result-motrix
+xvfb-run -a timeout 20 ./result-motrix/bin/motrix --version
+
+nix build .#etcher --out-link result-etcher
+xvfb-run -a timeout 20 ./result-etcher/bin/balena-etcher --version
 ```
+
+GUI 程序会把 `--version` 当作普通参数并打开窗口，`timeout` 返回 124 说明启动成功；其他非零状态才算失败。
 
 同时验证 aarch64 表达式可求值（本机没有 aarch64 builder 时至少做到这一步）：
 
@@ -118,7 +127,10 @@ xvfb-run -a timeout 15 ./result-sjmcl/bin/SJMCL --version
 nix eval .#packages.aarch64-linux.omp.drvPath
 nix eval .#packages.aarch64-linux.codex.drvPath
 nix eval .#packages.aarch64-linux.sjmcl.drvPath
+nix eval .#packages.aarch64-linux.motrix.drvPath
 ```
+
+`etcher` 没有 aarch64 Linux 产物，不参与 aarch64 求值；确认 `meta.platforms` 仍为 `[ "x86_64-linux" ]`。
 
 `nix flake check` 可选；它不会替代实际构建和冒烟测试。
 
@@ -126,8 +138,9 @@ nix eval .#packages.aarch64-linux.sjmcl.drvPath
 
 `.github/workflows/auto-update.yml` 每天在 UTC 00:00 和 12:00 各执行一次 `scripts/auto-update.sh`，运行环境为 `nix develop`：
 
-- 通过 GitHub Releases API 获取 `omp`、`codex`、`sjmcl` 的最新 Tag 和资产 URL；
-- 双平台包（`omp`、`codex`、`sjmcl`）实测两个平台的 SRI 哈希，改写 `default.nix` 中的 `version` 与 `if isAarch64 then ... else ...` 双哈希块；
+- 通过 GitHub Releases API 获取 `omp`、`codex`、`sjmcl`、`motrix`、`etcher` 的最新 Tag 和资产 URL；
+- 双平台包（`omp`、`codex`、`sjmcl`、`motrix`）实测两个平台的 SRI 哈希，改写 `default.nix` 中的 `version` 与 `if isAarch64 then ... else ...` 双哈希块；
+- `etcher` 只有 amd64 Deb，`update_package` 的 arm64 资产参数传 `-`，脚本改写单个 `hash = "sha256-...";` 行并跳过 aarch64 求值；
 - 更新后始终构建 `omp` 和 `codex`，并构建任何其他发生变更的包；任一构建或冒烟测试失败则工作流终止，不提交；
 - 全部通过后提交 `chore: auto update binaries [skip ci]` 并推送到 `main`。
 
@@ -158,6 +171,20 @@ nix eval .#packages.aarch64-linux.sjmcl.drvPath
 - 不要对完整 portable 文件直接 `patchelf`，会破坏追加数据。
 - aarch64 使用 `ld-linux-aarch64.so.1`，x86_64 使用 `ld-linux-x86-64.so.2`。
 - launcher 和游戏 JVM 是两套运行时：launcher 需要 Tauri/GTK/WebKit 库；游戏需要 JDK、OpenGL/Vulkan/声音库。两者都要在 wrapper 中考虑。
+
+### motrix
+
+- 上游同时发布 x86_64 与 arm64 AppImage，但文件名后缀不同：`Motrix-<version>-x86_64.AppImage` / `Motrix-<version>-arm64.AppImage`。更新时用 Releases API 确认，不要套用 1.x 的 `Motrix-<version>.AppImage` 命名。
+- 用 `appimageTools.wrapType2` 提供 FHS 运行时；desktop 文件与图标直接从 AppImage 内容安装，并把 `Exec=AppRun` 改成 `Exec=motrix`，否则启动器找不到命令。
+- 2.x 是上游重写版（Electron 45），与 nixpkgs 中的 1.8.19 表达式不是同一套资产布局。
+
+### etcher
+
+- 上游只有 `balena-etcher_<version>_amd64.deb`，没有 arm64 Linux 资产；`meta.platforms` 必须限制为 `x86_64-linux`。
+- Deb 的 `chrome-sandbox` 是 setuid root helper。Nix store 不能保留 setuid，而保留一个不可用的 helper 会让 Chromium 直接退出，所以安装时删除该文件，让 Electron 使用非特权 user namespace 沙箱；不要加 `--no-sandbox`。
+- `dpkg-deb --extract` 会尝试恢复 `chrome-sandbox` 的 setuid 位并在沙箱中失败；解包用 `dpkg-deb --fsys-tarfile "$src" | tar -x --no-same-owner --no-same-permissions`。
+- Electron 通过 `dlopen` 加载 `libEGL.so.1`，不会走可执行文件的 RUNPATH；wrapper 必须把 `libglvnd` 和 `${addDriverRunpath.driverLink}/lib` 加进 `LD_LIBRARY_PATH`，否则 GPU 进程报 `Could not dlopen native EGL`。
+- wrapper 的 PATH 需要 `polkit`（`pkexec` 提权）和 `xdg-utils`。
 
 ## 提交前检查清单
 

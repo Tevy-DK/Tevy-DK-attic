@@ -18,6 +18,8 @@
         omp = (pkgsFor system).callPackage ./pkgs/binaries/omp { };
         codex = (pkgsFor system).callPackage ./pkgs/binaries/codex { };
         sjmcl = (pkgsFor system).callPackage ./pkgs/binaries/sjmcl { };
+        motrix = (pkgsFor system).callPackage ./pkgs/appimages/motrix { };
+        etcher = (pkgsFor system).callPackage ./pkgs/deb/etcher { };
       });
 
       overlays.default =
@@ -26,6 +28,8 @@
           omp = final.callPackage ./pkgs/binaries/omp { };
           codex = final.callPackage ./pkgs/binaries/codex { };
           sjmcl = final.callPackage ./pkgs/binaries/sjmcl { };
+          motrix = final.callPackage ./pkgs/appimages/motrix { };
+          etcher = final.callPackage ./pkgs/deb/etcher { };
         };
 
       devShells = forAllSystems (system: {
