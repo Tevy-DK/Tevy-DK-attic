@@ -184,7 +184,9 @@ nix eval .#packages.aarch64-linux.motrix.drvPath
 - Deb 的 `chrome-sandbox` 是 setuid root helper。Nix store 不能保留 setuid，而保留一个不可用的 helper 会让 Chromium 直接退出，所以安装时删除该文件，让 Electron 使用非特权 user namespace 沙箱；不要加 `--no-sandbox`。
 - `dpkg-deb --extract` 会尝试恢复 `chrome-sandbox` 的 setuid 位并在沙箱中失败；解包用 `dpkg-deb --fsys-tarfile "$src" | tar -x --no-same-owner --no-same-permissions`。
 - Electron 通过 `dlopen` 加载 `libEGL.so.1`，不会走可执行文件的 RUNPATH；wrapper 必须把 `libglvnd` 和 `${addDriverRunpath.driverLink}/lib` 加进 `LD_LIBRARY_PATH`，否则 GPU 进程报 `Could not dlopen native EGL`。
-- wrapper 的 PATH 需要 `polkit`（`pkexec` 提权）和 `xdg-utils`。
+- `resources/etcher-util` 是 `pkg` 打包的 Node 程序，payload 追加在 ELF 末尾并记录绝对偏移。Nix 的 strip 会重写 ELF、丢掉 payload，导致 sidecar 以 `Pkg: Error reading from file.` 启动失败（GUI 报 `Failed to start the flasher sidecar process`）。必须 `stripExclude = [ "etcher-util" ];`。
+- sidecar 从 payload 里 `dlopen` 原生模块（`lzma-native`、`libext2fs`、`drivelist`），依赖对 `autoPatchelfHook` 不可见。设 `dontAutoPatchelf = true;`，在 `postFixup` 手动调用 `autoPatchelf "$out"`，再用 `patchelf --force-rpath --set-rpath` 给 `etcher-util` 加上 glibc/libstdc++/libgcc/udev；必须用 `DT_RPATH`（`--force-rpath`），因为 `dlopen` 不查 `DT_RUNPATH`。
+- 渲染层 bundle 硬编码 `/usr/bin/pkexec` 和 `/bin/bash`，NixOS 上都不存在。安装时用 `asar` 解包、替换为 `/run/wrappers/bin/pkexec`（setuid 的 NixOS wrapper）和 `${bash}/bin/bash`，再重新打包；不要依赖 PATH 里的 `pkexec`（polkit 包里的 `pkexec` 不是 setuid）。
 
 ## 提交前检查清单
 

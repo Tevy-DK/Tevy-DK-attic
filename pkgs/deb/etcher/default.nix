@@ -3,9 +3,12 @@
   stdenv,
   fetchurl,
   dpkg,
+  asar,
   autoPatchelfHook,
+  patchelf,
   makeWrapper,
   addDriverRunpath,
+  bash,
   # Electron / Chromium runtime libraries.  The executable links these
   # directly, so they belong in buildInputs for autoPatchelfHook.
   alsa-lib,
@@ -46,7 +49,6 @@
   libnotify,
   libpulseaudio,
   libsecret,
-  polkit,
   xdg-utils,
   gsettings-desktop-schemas,
   hicolor-icon-theme,
@@ -65,7 +67,9 @@ stdenv.mkDerivation (finalAttrs: {
 
   nativeBuildInputs = [
     dpkg
+    asar
     autoPatchelfHook
+    patchelf
     makeWrapper
     addDriverRunpath
   ];
@@ -108,7 +112,17 @@ stdenv.mkDerivation (finalAttrs: {
     libpulseaudio
     libsecret
     stdenv.cc.cc.lib
+    bash
   ];
+
+  # etcher-util is a pkg-packed Node application: its appended payload encodes
+  # absolute byte offsets.  Stripping rewrites the ELF and drops that payload,
+  # so the sidecar dies with "Pkg: Error reading from file." and Etcher shows
+  # "Failed to start the flasher sidecar process" when a source is opened.
+  stripExclude = [ "etcher-util" ];
+
+  # Run autoPatchelfHook manually so the sidecar can be patched afterwards.
+  dontAutoPatchelf = true;
 
   unpackPhase = ''
     runHook preUnpack
@@ -135,6 +149,23 @@ stdenv.mkDerivation (finalAttrs: {
     # (available on NixOS) without passing --no-sandbox.
     rm -f "$out/lib/balena-etcher/chrome-sandbox"
 
+    # The renderer bundle hardcodes Debian paths for privilege elevation and
+    # the shell.  Use the setuid pkexec wrapper NixOS installs (the pkexec from
+    # the polkit package is not setuid) and the store's bash instead.
+    mkdir asar
+    ${asar}/bin/asar extract "$out/lib/balena-etcher/resources/app.asar" asar
+    substituteInPlace asar/.webpack/renderer/main_window/index.js \
+      --replace-fail '["/usr/bin/kdesudo","/usr/bin/pkexec"]' \
+      '[process.env.ETCHER_PKEXEC||"/run/wrappers/bin/pkexec","/usr/bin/kdesudo","/usr/bin/pkexec"]' \
+      --replace-fail 'n.push("/bin/bash")' \
+      "n.push(\"${bash}/bin/bash\")"
+    rm -rf \
+      "$out/lib/balena-etcher/resources/app.asar" \
+      "$out/lib/balena-etcher/resources/app.asar.unpacked"
+    ${asar}/bin/asar pack asar "$out/lib/balena-etcher/resources/app.asar" \
+      --unpack-dir .webpack/renderer/native_modules/prebuilds
+    rm -rf asar
+
     # Chromium dlopens libEGL rather than linking it, so the loader cannot use
     # the executable's RUNPATH for it.  libglvnd provides the dispatch library
     # and /run/opengl-driver/lib the Mesa vendor drivers.
@@ -145,12 +176,7 @@ stdenv.mkDerivation (finalAttrs: {
           addDriverRunpath.driverLink
         ]
       }" \
-      --prefix PATH : "${
-        lib.makeBinPath [
-          polkit
-          xdg-utils
-        ]
-      }"
+      --prefix PATH : "${lib.makeBinPath [ xdg-utils ]}"
 
     install -Dm644 usr/share/applications/balena-etcher.desktop \
       "$out/share/applications/balena-etcher.desktop"
@@ -158,6 +184,27 @@ stdenv.mkDerivation (finalAttrs: {
       "$out/share/pixmaps/balena-etcher.png"
 
     runHook postInstall
+  '';
+
+  postFixup = ''
+    # autoPatchelfHook normally runs here; invoke it explicitly so the sidecar
+    # can be patched afterwards.  The native addons inside its pkg payload are
+    # loaded with dlopen(), so their dependencies are invisible to
+    # autoPatchelfHook.  dlopen() ignores DT_RUNPATH, so turn the sidecar's
+    # search path into DT_RPATH and add the libraries those addons need.
+    autoPatchelf "$out"
+
+    sidecar="$out/lib/balena-etcher/resources/etcher-util"
+    patchelf --force-rpath \
+      --set-rpath "${
+        lib.makeLibraryPath [
+          stdenv.cc.libc
+          stdenv.cc.cc.lib
+          libgcc
+          udev
+        ]
+      }" \
+      "$sidecar"
   '';
 
   meta = {
