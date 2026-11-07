@@ -56,9 +56,9 @@ let
   arch = if isAarch64 then "aarch64" else "x86_64";
   sourceHash =
     if isAarch64 then
-      "sha256-8q/EsNIuD/uoLMz6HqG+bvqq29sg6UAgT1u1LB6Gubc="
+      "sha256-mnX5Hj2OvtCP06fYrWTAwG67PJqYoxpu/8X6ArSGQRg="
     else
-      "sha256-QN2uVp4OerVq/hXAXgRBwStrr9YdlsKPtMgsYt9VYtQ=";
+      "sha256-tbFdDXqU3/d4KXd8nOf8GOvuX8ZoWkuY11vMEU6pDG0=";
   interpreter =
     if isAarch64 then
       "${stdenv.cc.libc}/lib/ld-linux-aarch64.so.1"
@@ -83,7 +83,7 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "sjmcl";
-  version = "1.4.0";
+  version = "1.4.1";
 
   # The portable build is a single self-contained ELF: the Tauri frontend is
   # linked in and the resource files are appended to the binary as a ZIP.
