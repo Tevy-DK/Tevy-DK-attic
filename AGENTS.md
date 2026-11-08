@@ -112,6 +112,9 @@ nix build .#codex --out-link result-codex
 nix build .#sjmcl --out-link result-sjmcl
 xvfb-run -a timeout 15 ./result-sjmcl/bin/SJMCL --version
 
+nix build .#moonlight-web --out-link result-moonlight-web
+./result-moonlight-web/bin/moonlight-web --version
+
 nix build .#motrix --out-link result-motrix
 xvfb-run -a timeout 20 ./result-motrix/bin/motrix --version
 
@@ -127,6 +130,7 @@ GUI 程序会把 `--version` 当作普通参数并打开窗口，`timeout` 返�
 nix eval .#packages.aarch64-linux.omp.drvPath
 nix eval .#packages.aarch64-linux.codex.drvPath
 nix eval .#packages.aarch64-linux.sjmcl.drvPath
+nix eval .#packages.aarch64-linux.moonlight-web.drvPath
 nix eval .#packages.aarch64-linux.motrix.drvPath
 ```
 
@@ -138,8 +142,8 @@ nix eval .#packages.aarch64-linux.motrix.drvPath
 
 `.github/workflows/auto-update.yml` 每天在 UTC 00:00 和 12:00 各执行一次 `scripts/auto-update.sh`，运行环境为 `nix develop`：
 
-- 通过 GitHub Releases API 获取 `omp`、`codex`、`sjmcl`、`motrix`、`etcher` 的最新 Tag 和资产 URL；
-- 双平台包（`omp`、`codex`、`sjmcl`、`motrix`）实测两个平台的 SRI 哈希，改写 `default.nix` 中的 `version` 与 `if isAarch64 then ... else ...` 双哈希块；
+- 通过 GitHub Releases API 获取 `omp`、`codex`、`sjmcl`、`moonlight-web`、`motrix`、`etcher` 的最新 Tag 和资产 URL；
+- 双平台包（`omp`、`codex`、`sjmcl`、`moonlight-web`、`motrix`）实测两个平台的 SRI 哈希，改写 `default.nix` 中的 `version` 与 `if isAarch64 then ... else ...` 双哈希块；
 - `etcher` 只有 amd64 Deb，`update_package` 的 arm64 资产参数传 `-`，脚本改写单个 `hash = "sha256-...";` 行并跳过 aarch64 求值；
 - 更新后始终构建 `omp` 和 `codex`，并构建任何其他发生变更的包；任一构建或冒烟测试失败则工作流终止，不提交；
 - 全部通过后提交 `chore: auto update binaries [skip ci]` 并推送到 `main`。
@@ -160,6 +164,13 @@ nix eval .#packages.aarch64-linux.motrix.drvPath
 
 - 上游 `codex-*-unknown-linux-musl.tar.gz` 是 static-pie，已 stripped。
 - 不要给 codex 加 `autoPatchelfHook`，也不要 strip；tarball 根目录就是二进制，安装时重命名为 `codex`。
+
+### moonlight-web
+
+- 上游 `moonlight-web-*-unknown-linux-musl.tar.gz` 是静态 musl 构建；tarball 内含 `package/web-server` 和预构建 Web UI `package/static/`。
+- `web-server` 从**进程工作目录**读取 `static/`（debug 构建读 `dist/`），默认配置为 `./server/config.json`、数据为 `./server/data.json`。Nix store 只读，因此 `bin/moonlight-web` 是包装脚本：切到 `${XDG_STATE_HOME:-$HOME/.local/state}/moonlight-web`（`MOONLIGHT_WEB_HOME` 可覆盖），创建 `server/`、软链 `static`，再 exec 真正的二进制。不要改成直接 exec store 里的 `web-server`，否则 Web UI 404 且数据文件写入失败。
+- 二进制是 static-pie（x86_64）/ static（aarch64）的 musl ELF，不需要 `autoPatchelfHook`，也不要用 patchelf 改 interpreter。上游产物未 strip；本包允许 stdenv 执行 `strip`（已验证 strip 后仍可启动），并保持 `dontPatchELF = true`。
+- 配置不会在首次启动时自动生成；用户需要 `moonlight-web config generate`。
 
 ### sjmcl
 

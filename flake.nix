@@ -18,6 +18,7 @@
         omp = (pkgsFor system).callPackage ./pkgs/binaries/omp { };
         codex = (pkgsFor system).callPackage ./pkgs/binaries/codex { };
         sjmcl = (pkgsFor system).callPackage ./pkgs/binaries/sjmcl { };
+        moonlight-web = (pkgsFor system).callPackage ./pkgs/binaries/moonlight-web { };
         motrix = (pkgsFor system).callPackage ./pkgs/appimages/motrix { };
         etcher = (pkgsFor system).callPackage ./pkgs/deb/etcher { };
       });
@@ -28,6 +29,7 @@
           omp = final.callPackage ./pkgs/binaries/omp { };
           codex = final.callPackage ./pkgs/binaries/codex { };
           sjmcl = final.callPackage ./pkgs/binaries/sjmcl { };
+          moonlight-web = final.callPackage ./pkgs/binaries/moonlight-web { };
           motrix = final.callPackage ./pkgs/appimages/motrix { };
           etcher = final.callPackage ./pkgs/deb/etcher { };
         };
