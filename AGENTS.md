@@ -188,14 +188,6 @@ nix eval .#packages.aarch64-linux.motrix.drvPath
 - sidecar 从 payload 里 `dlopen` 原生模块（`lzma-native`、`libext2fs`、`drivelist`），依赖对 `autoPatchelfHook` 不可见。设 `dontAutoPatchelf = true;`，在 `postFixup` 手动调用 `autoPatchelf "$out"`，再用 `patchelf --force-rpath --set-rpath` 给 `etcher-util` 加上 glibc/libstdc++/libgcc/udev；必须用 `DT_RPATH`（`--force-rpath`），因为 `dlopen` 不查 `DT_RUNPATH`。
 - 渲染层 bundle 硬编码 `/usr/bin/pkexec` 和 `/bin/bash`，NixOS 上都不存在。安装时用 `asar` 解包、替换为 `/run/wrappers/bin/pkexec`（setuid 的 NixOS wrapper）和 `${bash}/bin/bash`，再重新打包；不要依赖 PATH 里的 `pkexec`（polkit 包里的 `pkexec` 不是 setuid）。
 
-### dsh-desktop
-
-- 本仓库没有它的表达式：`flake.nix` 转发 `inputs.deepseek-harness.packages.<system>.dsh-desktop-unofficial`（[moraxyc/deepseek-harness.nix](https://github.com/moraxyc/deepseek-harness.nix)）。
-- 原因：上游只发布自解压 Electron 包，`chrome-sandbox` 需要 setuid，Nix store 无法保留；社区 flake 用 nixpkgs Electron 重建外壳，并把 `resources/host` 指向共享 `dsh` runtime。
-- 升级走 `nix flake update deepseek-harness`，不经过 `scripts/auto-update.sh`；升级后两个平台都要能求值，并实际构建一次。
-- 构建会编译 Electron 外壳与 dsh runtime，优先用上游 Cachix 缓存（见 README），否则首次构建的时间和流量都很大。
-- `flake.nix` 用 `optionalAttrs` 守卫该属性：上游没有提供的系统直接省略，避免整个 flake 求值失败。
-
 ## 提交前检查清单
 
 - [ ] 版本来自最新 Release Tag，不是 `main`。

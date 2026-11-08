@@ -1,48 +1,5 @@
 {
   "nodes": {
-    "deepseek-harness": {
-      "inputs": {
-        "flake-parts": "flake-parts",
-        "nixpkgs": [
-          "nixpkgs"
-        ],
-        "systems": "systems"
-      },
-      "locked": {
-        "lastModified": 1794133066,
-        "narHash": "sha256-aDsvKfzvDD3TpAAf7S4FXRFQHN3jGs0StAL0jsB+lWM=",
-        "owner": "moraxyc",
-        "repo": "deepseek-harness.nix",
-        "rev": "103931749003e91fc625013f7e0aeac2941b66cf",
-        "type": "github"
-      },
-      "original": {
-        "owner": "moraxyc",
-        "repo": "deepseek-harness.nix",
-        "type": "github"
-      }
-    },
-    "flake-parts": {
-      "inputs": {
-        "nixpkgs-lib": [
-          "deepseek-harness",
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1793576659,
-        "narHash": "sha256-V1h85lUaJBQoHFrB2vpXZOE0Ju1MYSnIpsehoVZYlDo=",
-        "owner": "hercules-ci",
-        "repo": "flake-parts",
-        "rev": "ea2630b7470978622c7689a1ff75d2b389175399",
-        "type": "github"
-      },
-      "original": {
-        "owner": "hercules-ci",
-        "repo": "flake-parts",
-        "type": "github"
-      }
-    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1793110635,
@@ -61,23 +18,7 @@
     },
     "root": {
       "inputs": {
-        "deepseek-harness": "deepseek-harness",
         "nixpkgs": "nixpkgs"
-      }
-    },
-    "systems": {
-      "locked": {
-        "lastModified": 1776166891,
-        "narHash": "sha256-bI8yrEGjrohR5hkQox7UrxDH7XqrYMwI8SL/LrJ1+S8=",
-        "owner": "nix-systems",
-        "repo": "triplet",
-        "rev": "6de7bc09397911ce03636afbcf6118745ab2cda0",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nix-systems",
-        "repo": "triplet",
-        "type": "github"
       }
     }
   },
