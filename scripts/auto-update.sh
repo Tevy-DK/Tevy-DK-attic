@@ -190,7 +190,6 @@ build_package() {
   case "$pkg" in
     omp) "./result-$pkg/bin/omp" --version ;;
     codex) "./result-$pkg/bin/codex" --version ;;
-    moonlight-web) "./result-$pkg/bin/moonlight-web" --version ;;
     sjmcl | motrix | etcher)
       # These GUI applications ignore --version as a dry-run and start the
       # window instead, so a timeout after a successful launch is expected.
@@ -219,9 +218,6 @@ update_package \
 update_package \
   sjmcl UNIkeEN/SJMCL pkgs/binaries/sjmcl/default.nix v \
   'SJMCL_%VERSION%_linux_aarch64_portable' 'SJMCL_%VERSION%_linux_x86_64_portable'
-update_package \
-  moonlight-web MrCreativ3001/moonlight-web-stream pkgs/binaries/moonlight-web/default.nix v \
-  moonlight-web-aarch64-unknown-linux-musl.tar.gz moonlight-web-x86_64-unknown-linux-musl.tar.gz
 update_package \
   motrix agalwood/Motrix pkgs/appimages/motrix/default.nix v \
   'Motrix-%VERSION%-arm64.AppImage' 'Motrix-%VERSION%-x86_64.AppImage'
