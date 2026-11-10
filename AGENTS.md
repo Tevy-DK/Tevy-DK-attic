@@ -176,6 +176,7 @@ nix eval .#packages.aarch64-linux.motrix.drvPath
 
 - 上游同时发布 x86_64 与 arm64 AppImage，但文件名后缀不同：`Motrix-<version>-x86_64.AppImage` / `Motrix-<version>-arm64.AppImage`。更新时用 Releases API 确认，不要套用 1.x 的 `Motrix-<version>.AppImage` 命名。
 - 用 `appimageTools.wrapType2` 提供 FHS 运行时；desktop 文件与图标直接从 AppImage 内容安装，并把 `Exec=AppRun` 改成 `Exec=motrix`，否则启动器找不到命令。
+- 生成的 wrapper 通过 `bubblewrap` 创建 FHS 沙箱，需要非特权 user namespace。Ubuntu 24.04+ 用 AppArmor 限制了它（`kernel.apparmor_restrict_unprivileged_userns=1`），冒烟测试会直接死在 `bwrap: setting up uid map: Permission denied`；CI 因此先关掉该限制再构建。
 - 2.x 是上游重写版（Electron 45），与 nixpkgs 中的 1.8.19 表达式不是同一套资产布局。
 
 ### etcher
