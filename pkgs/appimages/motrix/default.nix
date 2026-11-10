@@ -10,13 +10,13 @@ let
   assetArch = if isAarch64 then "arm64" else "x86_64";
   hash =
     if isAarch64 then
-      "sha256-v9e3l8k53Zyspir1tquJC1E41apSIX+4odTMOtvd0Nk="
+      "sha256-JCenVj2U88moNCGgpeNaiM5pgU3CQI1MzsqsQ3BN29A="
     else
-      "sha256-762PpaRusgx+pAo+F0ju06V86Yll9ODosoCgihvgtY8=";
+      "sha256-dnh0x2SoznosmhXWp6bjY9YqIjK/Qz02pv7bOiR5I7o=";
 in
 appimageTools.wrapType2 (finalAttrs: {
   pname = "motrix";
-  version = "2.3.0";
+  version = "2.4.1";
 
   src = fetchurl {
     url = "https://github.com/agalwood/Motrix/releases/download/v${finalAttrs.version}/Motrix-${finalAttrs.version}-${assetArch}.AppImage";
