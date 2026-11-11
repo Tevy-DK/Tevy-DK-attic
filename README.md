@@ -14,7 +14,7 @@
 
 `omp` 说明：上游的 `omp-linux-musl-*` 并非静态二进制，而是动态链接 musl 版 `libstdc++`/`libgcc`。在 NixOS（glibc 环境）上给进程注入 musl `libstdc++` 会破坏 omp 派生的 glibc 子进程，因此本仓库使用同一版本的 `omp-linux-*` glibc 资产。omp 首次使用时会把本地嵌入运行时（`fastembed` + 预编译 `onnxruntime-node`）安装到 `~/.omp/cache`，这些库由 `dlopen` 加载并需要 glibc 版 `libstdc++.so.6`；构建期无从修补，所以 launch wrapper 通过 `OMP_NATIVE_LIBRARY_PATH` 声明 `stdenv.cc.cc.lib`/`libgcc` 路径（omp 只把它注入推理 worker 子进程的 `LD_LIBRARY_PATH`），避免 `bge-base-en-v1.5 failed: libstdc++.so.6` 启动错误。
 
-`chatgpt` 是 OpenAI 官方的 ChatGPT 桌面版（Electron），直接打包其签名 APT 仓库里的 Debian 包；上游没有 GitHub Release，因此版本号取自 `dists/stable` 索引。NixOS 上的修补与 nixpkgs 一致：`autoPatchelfHook` 会让 `detect-libc` 读不到 `PT_INTERP`，所以把 `app.asar` 里的判断固定为 glibc 后重新打包；只保留本机构架的 `prebuilds`；Electron 运行时会改写自带的插件清单，launcher 把 `resources/plugins` 复制到 `~/.cache` 再通过 `CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH` 指过去。该包是专有软件（`lib.licenses.unfree`），overlay 使用者需要自行开启 `allowUnfree`。
+`chatgpt` 是 OpenAI 官方的 ChatGPT 桌面版（Electron），直接打包其签名 APT 仓库里的 Debian 包；上游没有 GitHub Release，因此版本号取自 `dists/stable` 索引。NixOS 上的修补参考 nixpkgs 的表达式和 [ilysenko/codex-desktop-linux](https://github.com/ilysenko/codex-desktop-linux) 的 Nix 说明：`autoPatchelfHook` 会让 `detect-libc` 读不到 `PT_INTERP`，所以把 `app.asar` 里的判断固定为 glibc 后重新打包；只保留本机构架的 `prebuilds`；Electron 运行时会改写自带的插件清单，launcher 把 `resources/plugins` 复制到 `~/.cache` 再通过 `CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH` 指过去。该包是专有软件（`lib.licenses.unfree`），overlay 使用者需要自行开启 `allowUnfree`。
 
 `motrix` 使用上游双平台 AppImage，由 `appimageTools.wrapType2` 提供 FHS 运行时，并安装 AppImage 自带的 desktop 文件与图标。`etcher` 上游只发布 amd64 Debian 包，没有 arm64 Linux 产物，因此 `meta.platforms` 仅保留 `x86_64-linux`。Deb 的 `chrome-sandbox` 需要 setuid，而 Nix store 无法保留该权限：包内删除该 helper，Electron 改用非特权 user namespace 沙箱（不传 `--no-sandbox`）。
 
