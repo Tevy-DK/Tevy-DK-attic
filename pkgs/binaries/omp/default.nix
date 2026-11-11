@@ -16,13 +16,13 @@ let
   assetSuffix = if isAarch64 then "arm64" else "x64";
   hash =
     if isAarch64 then
-      "sha256-Xk3o0D1UNBQRVIDgPW0jKkPKzyXcud+Nj5OkSooOdmc="
+      "sha256-gcl42yKgwfwn5J2ZGW3Ul5/3YEFR9LCSTVWBczYi+Gs="
     else
-      "sha256-v7eoXM6t5uVYD61Z/4dXC03lADmwQo7TAznPQoa9BS8=";
+      "sha256-lCoMWaE6Lsz/zqtVHnPKmloUjWmuYyC3v6GnoTCq+tM=";
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "omp";
-  version = "18.18.8";
+  version = "18.18.9";
 
   src = fetchurl {
     url = "https://github.com/can1357/oh-my-pi/releases/download/v${finalAttrs.version}/omp-linux-${assetSuffix}";
