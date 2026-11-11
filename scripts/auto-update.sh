@@ -12,6 +12,10 @@ set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 
+# OpenAI ships the ChatGPT desktop application only through its signed APT
+# repository; there is no GitHub release to query.
+chatgpt_apt_base=https://persistent.oaistatic.com/codex-app-prod/linux/deb
+
 commit=false
 for arg in "$@"; do
   case "$arg" in
@@ -189,7 +193,18 @@ build_package() {
 
   case "$pkg" in
     omp) "./result-$pkg/bin/omp" --version ;;
-    codex) "./result-$pkg/bin/codex" --version ;;
+    chatgpt)
+      # chatgpt is an Electron GUI: --version prints the runtime version when
+      # it works, but a window launch that hits the timeout also counts as a
+      # successful start.  The first run copies the bundled plugins into the
+      # user cache, so allow more time than the other GUI packages.
+      local status=0
+      xvfb-run -a timeout 30 "./result-$pkg/bin/chatgpt" --version || status=$?
+      if ((status != 0 && status != 124)); then
+        echo "$pkg failed to start (status $status)" >&2
+        return "$status"
+      fi
+      ;;
     sjmcl | motrix | etcher)
       # These GUI applications ignore --version as a dry-run and start the
       # window instead, so a timeout after a successful launch is expected.
@@ -209,12 +224,83 @@ build_package() {
   esac
 }
 
+apt_index() {
+  local architecture=$1
+  curl --fail --silent --show-error \
+    "$chatgpt_apt_base/dists/stable/main/binary-$architecture/Packages"
+}
+
+apt_field() {
+  local field=$1
+  sed -n "s/^$field: //p" <<<"$2" | head -n 1
+}
+
+# ChatGPT is not published on GitHub: the version and the package paths come
+# from the stable APT index, while the hashes are measured from the real
+# packages by prefetching them.
+update_apt_package() {
+  local pkg=$1 file=$2
+  local amd64_index arm64_index version arm64_version current
+  local file_amd64 file_arm64 x86_hash arm_hash
+
+  echo "==> $pkg (APT stable)"
+  amd64_index=$(apt_index amd64) || return 1
+  arm64_index=$(apt_index arm64) || return 1
+
+  [[ $(apt_field Package "$amd64_index") == "$pkg" ]] || {
+    echo "$pkg: unexpected amd64 package name" >&2
+    return 1
+  }
+  [[ $(apt_field Package "$arm64_index") == "$pkg" ]] || {
+    echo "$pkg: unexpected arm64 package name" >&2
+    return 1
+  }
+
+  version=$(apt_field Version "$amd64_index")
+  arm64_version=$(apt_field Version "$arm64_index")
+  [[ -n $version && $version == "$arm64_version" ]] || {
+    echo "$pkg: amd64 version '$version' does not match arm64 '$arm64_version'" >&2
+    return 1
+  }
+
+  current=$(current_version "$file")
+  if [[ $current == "$version" ]]; then
+    echo "    already at $version"
+    return 0
+  fi
+
+  # Do not silently downgrade a manually pinned newer version.
+  if [[ $(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n1) == "$current" ]]; then
+    echo "    local version $current is newer than upstream $version; keeping it"
+    return 0
+  fi
+
+  # The expression derives the download URL from the version and the Debian
+  # architecture; refuse to rewrite anything if upstream moves the pool.
+  file_amd64="pool/main/c/$pkg/${pkg}_${version}_amd64.deb"
+  file_arm64="pool/main/c/$pkg/${pkg}_${version}_arm64.deb"
+  [[ $(apt_field Filename "$amd64_index") == "$file_amd64" ]] || {
+    echo "$pkg: unexpected amd64 package path in the APT index" >&2
+    return 1
+  }
+  [[ $(apt_field Filename "$arm64_index") == "$file_arm64" ]] || {
+    echo "$pkg: unexpected arm64 package path in the APT index" >&2
+    return 1
+  }
+
+  echo "    $current -> $version"
+  x86_hash=$(sri_hash "$chatgpt_apt_base/$file_amd64") || return 1
+  arm_hash=$(sri_hash "$chatgpt_apt_base/$file_arm64") || return 1
+
+  update_nix_file "$file" "$version" "$arm_hash" "$x86_hash"
+  changed_packages+=("$pkg")
+  changed_files+=("$file")
+}
+
+update_apt_package chatgpt pkgs/deb/chatgpt/default.nix
 update_package \
   omp can1357/oh-my-pi pkgs/binaries/omp/default.nix v \
   omp-linux-arm64 omp-linux-x64
-update_package \
-  codex openai/codex pkgs/binaries/codex/default.nix rust-v \
-  codex-aarch64-unknown-linux-musl.tar.gz codex-x86_64-unknown-linux-musl.tar.gz
 update_package \
   sjmcl UNIkeEN/SJMCL pkgs/binaries/sjmcl/default.nix v \
   'SJMCL_%VERSION%_linux_aarch64_portable' 'SJMCL_%VERSION%_linux_x86_64_portable'
@@ -234,7 +320,7 @@ fi
 
 # Validate both mandatory packages after any update, plus every other package
 # whose expression changed.
-declare -A to_build=([omp]=1 [codex]=1)
+declare -A to_build=([omp]=1 [chatgpt]=1)
 for pkg in "${changed_packages[@]}"; do
   to_build[$pkg]=1
 done

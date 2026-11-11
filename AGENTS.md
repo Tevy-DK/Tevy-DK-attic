@@ -1,6 +1,6 @@
 # AGENTS.md
 
-面向未来维护者（包括 AI）的仓库规范。目标：只打包上游 Release 二进制，保持版本新、构建快、哈希真实、结构可预测。
+面向未来维护者（包括 AI）的仓库规范。目标：只打包上游 Release 二进制（`chatgpt` 打包 OpenAI 签名 APT 稳定索引中的 Debian 包），保持版本新、构建快、哈希真实、结构可预测。
 
 ## 仓库布局
 
@@ -24,6 +24,7 @@
 - 使用 GitHub Releases API 或 `gh release view <tag>` 获取资产列表，不要猜文件名。
 - 版本更新必须同时更新 `version`、资产 URL 模式、每个平台的哈希。
 - 上游只发布 x86_64 资产时（如 `etcher`），表达式只保留一个 `hash = "sha256-...";` 行，并用 `meta.platforms` 限制平台；自动更新脚本用 `-` 占位表示缺失的 arm64 资产。
+- `chatgpt` 没有 GitHub Release：版本与 deb 路径取自 `https://persistent.oaistatic.com/codex-app-prod/linux/deb` 的 `dists/stable/main/binary-{amd64,arm64}/Packages`，两个架构的 `Version` 必须一致，`Filename` 必须与表达式里的 URL 模板一致。
 - `flake.lock` 只固定 nixpkgs；升级 nixpkgs 后重新构建全部包。
 
 发现最新 Release：
@@ -106,8 +107,8 @@ nix build .#omp --out-link result-omp
 ./result-omp/bin/omp --version
 ./result-omp/bin/omp --smoke-test
 
-nix build .#codex --out-link result-codex
-./result-codex/bin/codex --version
+nix build .#chatgpt --out-link result-chatgpt
+xvfb-run -a timeout 30 ./result-chatgpt/bin/chatgpt --version
 
 nix build .#sjmcl --out-link result-sjmcl
 xvfb-run -a timeout 15 ./result-sjmcl/bin/SJMCL --version
@@ -125,7 +126,7 @@ GUI 程序会把 `--version` 当作普通参数并打开窗口，`timeout` 返�
 
 ```sh
 nix eval .#packages.aarch64-linux.omp.drvPath
-nix eval .#packages.aarch64-linux.codex.drvPath
+nix eval .#packages.aarch64-linux.chatgpt.drvPath
 nix eval .#packages.aarch64-linux.sjmcl.drvPath
 nix eval .#packages.aarch64-linux.motrix.drvPath
 ```
@@ -138,10 +139,11 @@ nix eval .#packages.aarch64-linux.motrix.drvPath
 
 `.github/workflows/auto-update.yml` 每天在 UTC 00:00 和 12:00 各执行一次 `scripts/auto-update.sh`，运行环境为 `nix develop`：
 
-- 通过 GitHub Releases API 获取 `omp`、`codex`、`sjmcl`、`motrix`、`etcher` 的最新 Tag 和资产 URL；
-- 双平台包（`omp`、`codex`、`sjmcl`、`motrix`）实测两个平台的 SRI 哈希，改写 `default.nix` 中的 `version` 与 `if isAarch64 then ... else ...` 双哈希块；
+- 通过 GitHub Releases API 获取 `omp`、`sjmcl`、`motrix`、`etcher` 的最新 Tag 和资产 URL，`chatgpt` 则读取 OpenAI 稳定 APT 索引；
+- 双平台包（`omp`、`chatgpt`、`sjmcl`、`motrix`）实测两个平台的 SRI 哈希，改写 `default.nix` 中的 `version` 与 `if isAarch64 then ... else ...` 双哈希块；
 - `etcher` 只有 amd64 Deb，`update_package` 的 arm64 资产参数传 `-`，脚本改写单个 `hash = "sha256-...";` 行并跳过 aarch64 求值；
-- 更新后始终构建 `omp` 和 `codex`，并构建任何其他发生变更的包；任一构建或冒烟测试失败则工作流终止，不提交；
+- `chatgpt` 由 `update_apt_package` 处理：解析 `Packages` 的 `Version`/`Filename`，实测两个 deb 的 SRI 哈希后改写同一个双哈希块；
+- 更新后始终构建 `omp` 和 `chatgpt`，并构建任何其他发生变更的包；任一构建或冒烟测试失败则工作流终止，不提交；
 - 全部通过后提交 `chore: auto update binaries [skip ci]` 并推送到 `main`。
 
 脚本依赖 devShell 提供的 `gh`、`curl`、`jq`、`python3`、`git` 和 `nix`，workflow 不额外安装这些工具。表达式的 `version` 行和双哈希块布局是脚本的解析约定；修改布局时必须同步更新脚本。
@@ -156,10 +158,17 @@ nix eval .#packages.aarch64-linux.motrix.drvPath
 - `autoPatchelfIgnoreMissingDeps` 中列出的 `ld-linux-*` 是 ELF interpreter，不是普通共享库。
 - omp 首次使用时会把本地推理运行时（`fastembed` + 预编译 `onnxruntime-node`/`tokenizers`）安装到 `~/.omp/cache`，这些 `.node`/`.so` 由 `dlopen` 加载、自带 `DT_RUNPATH`，依赖 glibc 版 `libstdc++.so.6`/`libgcc_s.so.1`。它们构建期不存在，`autoPatchelfHook` 无法修补，可执行文件自身的 RPATH 也不会用于解析 addon 的依赖。因此 launch wrapper 设置 `--set-default OMP_NATIVE_LIBRARY_PATH`（`stdenv.cc.cc.lib` + `libgcc`）：omp 只把这个值追加到推理 worker 子进程的 `LD_LIBRARY_PATH`，不会污染 bash/eval/daemon 派生的子进程。不要改成全局导出 `LD_LIBRARY_PATH`，更不要注入 musl 版 `libstdc++`。
 
-### codex
+### chatgpt
 
-- 上游 `codex-*-unknown-linux-musl.tar.gz` 是 static-pie，已 stripped。
-- 不要给 codex 加 `autoPatchelfHook`，也不要 strip；tarball 根目录就是二进制，安装时重命名为 `codex`。
+- 上游没有 GitHub Release，只通过 `https://persistent.oaistatic.com/codex-app-prod/linux/deb` 发布签名 APT 包 `chatgpt_<version>_{amd64,arm64}.deb`；版本号取自 `dists/stable` 的 `Packages` 索引。
+- 这是约 563 MB 的 Electron 包，安装后约 1.8 GB。`usr/bin/chatgpt` 指向 `usr/lib/chatgpt/codex-launcher`，真正的 ELF 名为 `ChatGPT`。
+- `autoPatchelfHook` 会把 `PT_INTERP` 移出 `detect-libc` 读取的前 2 KiB，Electron 退到 `process.report` 后崩溃；必须解包 `resources/app.asar`，把 `node_modules/@parcel/watcher/index.js` 里的 `const family = familySync();` 固定为 glibc，再用 `asar pack --unpack-dir` 按原有 unpacked 目录重新打包。
+- `resources/app.asar.unpacked/**/prebuilds` 带 darwin/win32/android/musl 全套产物；必须在 `autoPatchelfHook` 之前只保留 `*linux-x64`（aarch64 为 `*linux-arm64`），否则异构 ELF 会被改写。
+- Electron 运行时会改写 `resources/plugins` 里的插件清单，因此 launcher 把该目录复制到 `$XDG_CACHE_HOME/chatgpt/bundled-plugins-v2/<store 名>`，其余资源软链到 store，并设置 `CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH`。
+- `resources/codex`、`resources/rg` 是 static-pie，`resources/tectonic/tectonic` 是静态链接：这些不需要修补；`resources/cua_node/bin/node` 是动态 ELF，会被正常 patchelf。
+- `libqt6_shim.so` 是 Qt 6 输入法 shim，保留并让 `qt6.qtbase` 进入 `buildInputs`；`libqt5_shim.so` 无用，安装时删除。
+- 包是专有软件（`meta.license = lib.licenses.unfree`）；flake 自己的 `packages` 用 `config.allowUnfree = true` 导入 nixpkgs，overlay 使用者需自行开启。
+- 冒烟测试：`xvfb-run -a timeout 30 ./result-chatgpt/bin/chatgpt --version`；首次启动要把 29 MB 插件复制进缓存，比其它 GUI 包慢。
 
 ### sjmcl
 

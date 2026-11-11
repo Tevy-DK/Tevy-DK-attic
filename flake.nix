@@ -11,12 +11,19 @@
         "aarch64-linux"
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
-      pkgsFor = system: nixpkgs.legacyPackages.${system};
+      # chatgpt is proprietary, so the flake's own outputs have to accept
+      # unfree licenses.  Consumers of the overlay keep their own setting.
+      pkgsFor =
+        system:
+        import nixpkgs {
+          inherit system;
+          config.allowUnfree = true;
+        };
     in
     {
       packages = forAllSystems (system: {
         omp = (pkgsFor system).callPackage ./pkgs/binaries/omp { };
-        codex = (pkgsFor system).callPackage ./pkgs/binaries/codex { };
+        chatgpt = (pkgsFor system).callPackage ./pkgs/deb/chatgpt { };
         sjmcl = (pkgsFor system).callPackage ./pkgs/binaries/sjmcl { };
         motrix = (pkgsFor system).callPackage ./pkgs/appimages/motrix { };
         etcher = (pkgsFor system).callPackage ./pkgs/deb/etcher { };
@@ -26,7 +33,7 @@
         final: prev:
         prev.lib.optionalAttrs prev.stdenv.hostPlatform.isLinux {
           omp = final.callPackage ./pkgs/binaries/omp { };
-          codex = final.callPackage ./pkgs/binaries/codex { };
+          chatgpt = final.callPackage ./pkgs/deb/chatgpt { };
           sjmcl = final.callPackage ./pkgs/binaries/sjmcl { };
           motrix = final.callPackage ./pkgs/appimages/motrix { };
           etcher = final.callPackage ./pkgs/deb/etcher { };
