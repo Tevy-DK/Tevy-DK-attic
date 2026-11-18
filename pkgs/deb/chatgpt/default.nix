@@ -58,9 +58,9 @@ let
   arch = if stdenv.hostPlatform.isAarch64 then "arm64" else "amd64";
   hash =
     if stdenv.hostPlatform.isAarch64 then
-      "sha256-xcWqCQlo73oosnyu09AzdIidfIJQdogU60yuXZudmiU="
+      "sha256-Vdhh+0yNG1QDPk1BePNE8Lkkc1K/gCkEIPRNFd7Eoro="
     else
-      "sha256-S0Q7xVc1ChsZO8LxuuIHyeo8n7XZT3yUpdPbqotVI1I=";
+      "sha256-gZdCTLzqOnwNRFpUTqprmd+Ljvix0YLit0P3AnU8enA=";
 
   # Electron rewrites the bundled plugin manifests at runtime, so that
   # directory is copied into the user cache while everything else is
@@ -127,7 +127,7 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "chatgpt";
-  version = "26.1111.21308";
+  version = "26.1111.71025";
 
   # Only OpenAI's signed Linux repository publishes the desktop application;
   # there is no GitHub release to track.
