@@ -15,6 +15,11 @@ cd "$ROOT"
 # OpenAI ships the ChatGPT desktop application only through its signed APT
 # repository; there is no GitHub release to query.
 chatgpt_apt_base=https://persistent.oaistatic.com/codex-app-prod/linux/deb
+# Antigravity publishes no GitHub release.  Its updater manifest carries the
+# current version and a download URL whose path contains the release id
+# ("<version>-<build>") used by both Linux architectures.
+antigravity_manifest=https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-x64-linux.yml
+antigravity_storage=https://storage.googleapis.com/antigravity-public/antigravity-hub
 
 commit=false
 for arg in "$@"; do
@@ -205,7 +210,7 @@ build_package() {
         return "$status"
       fi
       ;;
-    sjmcl | motrix | etcher)
+    sjmcl | motrix | etcher | antigravity)
       # These GUI applications ignore --version as a dry-run and start the
       # window instead, so a timeout after a successful launch is expected.
       # Any other non-zero status is a startup failure.
@@ -214,6 +219,7 @@ build_package() {
         sjmcl) binary=SJMCL ;;
         motrix) binary=motrix ;;
         etcher) binary=balena-etcher ;;
+        antigravity) binary=antigravity ;;
       esac
       xvfb-run -a timeout 15 "./result-$pkg/bin/$binary" --version || status=$?
       if ((status != 0 && status != 124)); then
@@ -297,7 +303,98 @@ update_apt_package() {
   changed_files+=("$file")
 }
 
+# Antigravity is not published on GitHub either.  The updater manifest names
+# the latest version and points at an artifact under the release id, which is
+# what the expression's URL uses; the two Linux tarballs are measured by
+# prefetching the canonical storage URLs.
+update_antigravity_package() {
+  local file=$1
+  local manifest version release current current_ver current_build
+  local x86_hash arm_hash base
+
+  echo "==> antigravity (hub manifest)"
+  manifest=$(curl --fail --silent --show-error "$antigravity_manifest") || return 1
+
+  version=$(sed -n 's/^version: //p' <<<"$manifest" | head -n 1)
+  release=$(sed -n 's#.*antigravity-hub/\([^/]*\)/.*#\1#p' <<<"$manifest" | head -n 1)
+  [[ -n $version && -n $release && $release == "$version"-* ]] || {
+    echo "antigravity: could not parse version '$version' and release '$release' from the manifest" >&2
+    return 1
+  }
+
+  current_ver=$(current_version "$file")
+  current_build=$(sed -n 's/^  build = "\([^"]*\)";$/\1/p' "$file")
+  [[ -n $current_build ]] || {
+    echo "antigravity: could not find the build line in $file" >&2
+    return 1
+  }
+  current="$current_ver-$current_build"
+
+  if [[ $current == "$release" ]]; then
+    echo "    already at $release"
+    return 0
+  fi
+
+  # Do not silently downgrade a manually pinned newer release.
+  if [[ $(printf '%s\n%s\n' "$current" "$release" | sort -V | tail -n1) == "$current" ]]; then
+    echo "    local release $current is newer than upstream $release; keeping it"
+    return 0
+  fi
+
+  echo "    $current -> $release"
+  base="$antigravity_storage/$release"
+  x86_hash=$(sri_hash "$base/linux-x64/Antigravity.tar.gz") || return 1
+  arm_hash=$(sri_hash "$base/linux-arm/Antigravity.tar.gz") || return 1
+
+  python3 - "$file" "$version" "${release#*-}" "$arm_hash" "$x86_hash" <<'PY'
+import re
+import sys
+
+path, version, build, arm_hash, x86_hash = sys.argv[1:]
+
+with open(path, encoding="utf-8") as handle:
+    text = handle.read()
+
+text, count = re.subn(
+    r'^  version = "[^"]*";$',
+    f'  version = "{version}";',
+    text,
+    count=1,
+    flags=re.MULTILINE,
+)
+assert count == 1, f"expected one version line in {path}, found {count}"
+
+text, count = re.subn(
+    r'^  build = "[^"]*";$',
+    f'  build = "{build}";',
+    text,
+    count=1,
+    flags=re.MULTILINE,
+)
+assert count == 1, f"expected one build line in {path}, found {count}"
+
+hash_pattern = re.compile(
+    r'(if [^\n]*isAarch64 then\s*\n\s*")(sha256-[A-Za-z0-9+/=]+)'
+    r'("\s*\n\s*else\s*\n\s*")(sha256-[A-Za-z0-9+/=]+)(")'
+)
+text, count = hash_pattern.subn(
+    lambda match: (
+        match.group(1) + arm_hash + match.group(3) + x86_hash + match.group(5)
+    ),
+    text,
+)
+assert count == 1, f"expected one if-isAarch64 hash pair in {path}, found {count}"
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(text)
+PY
+
+  changed_packages+=("antigravity")
+  changed_files+=("$file")
+}
+
 update_apt_package chatgpt pkgs/deb/chatgpt/default.nix
+update_antigravity_package pkgs/binaries/antigravity/default.nix
 update_package \
   omp can1357/oh-my-pi pkgs/binaries/omp/default.nix v \
   omp-linux-arm64 omp-linux-x64
