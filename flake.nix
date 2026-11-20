@@ -27,6 +27,7 @@
         sjmcl = (pkgsFor system).callPackage ./pkgs/binaries/sjmcl { };
         motrix = (pkgsFor system).callPackage ./pkgs/appimages/motrix { };
         etcher = (pkgsFor system).callPackage ./pkgs/deb/etcher { };
+        antigravity = (pkgsFor system).callPackage ./pkgs/binaries/antigravity { };
       });
 
       overlays.default =
@@ -37,6 +38,7 @@
           sjmcl = final.callPackage ./pkgs/binaries/sjmcl { };
           motrix = final.callPackage ./pkgs/appimages/motrix { };
           etcher = final.callPackage ./pkgs/deb/etcher { };
+          antigravity = final.callPackage ./pkgs/binaries/antigravity { };
         };
 
       devShells = forAllSystems (system: {

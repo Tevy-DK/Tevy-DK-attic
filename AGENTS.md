@@ -25,6 +25,7 @@
 - 版本更新必须同时更新 `version`、资产 URL 模式、每个平台的哈希。
 - 上游只发布 x86_64 资产时（如 `etcher`），表达式只保留一个 `hash = "sha256-...";` 行，并用 `meta.platforms` 限制平台；自动更新脚本用 `-` 占位表示缺失的 arm64 资产。
 - `chatgpt` 没有 GitHub Release：版本与 deb 路径取自 `https://persistent.oaistatic.com/codex-app-prod/linux/deb` 的 `dists/stable/main/binary-{amd64,arm64}/Packages`，两个架构的 `Version` 必须一致，`Filename` 必须与表达式里的 URL 模板一致。
+- `antigravity` 没有 GitHub Release：版本与构建号取自 `https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-x64-linux.yml`，产物 URL 为 `https://storage.googleapis.com/antigravity-public/antigravity-hub/<version>-<build>/linux-{x64,arm}/Antigravity.tar.gz`，两个架构共享同一个 release id。
 - `flake.lock` 只固定 nixpkgs；升级 nixpkgs 后重新构建全部包。
 
 发现最新 Release：
@@ -118,6 +119,9 @@ xvfb-run -a timeout 20 ./result-motrix/bin/motrix --version
 
 nix build .#etcher --out-link result-etcher
 xvfb-run -a timeout 20 ./result-etcher/bin/balena-etcher --version
+
+nix build .#antigravity --out-link result-antigravity
+xvfb-run -a timeout 20 ./result-antigravity/bin/antigravity --version
 ```
 
 GUI 程序会把 `--version` 当作普通参数并打开窗口，`timeout` 返回 124 说明启动成功；其他非零状态才算失败。
@@ -129,6 +133,7 @@ nix eval .#packages.aarch64-linux.omp.drvPath
 nix eval .#packages.aarch64-linux.chatgpt.drvPath
 nix eval .#packages.aarch64-linux.sjmcl.drvPath
 nix eval .#packages.aarch64-linux.motrix.drvPath
+nix eval .#packages.aarch64-linux.antigravity.drvPath
 ```
 
 `etcher` 没有 aarch64 Linux 产物，不参与 aarch64 求值；确认 `meta.platforms` 仍为 `[ "x86_64-linux" ]`。
@@ -139,11 +144,12 @@ nix eval .#packages.aarch64-linux.motrix.drvPath
 
 `.github/workflows/auto-update.yml` 每天在 UTC 00:00 和 12:00 各执行一次 `scripts/auto-update.sh`，运行环境为 `nix develop`：
 
-- 通过 GitHub Releases API 获取 `omp`、`sjmcl`、`motrix`、`etcher` 的最新 Tag 和资产 URL，`chatgpt` 则读取 OpenAI 稳定 APT 索引；
-- 双平台包（`omp`、`chatgpt`、`sjmcl`、`motrix`）实测两个平台的 SRI 哈希，改写 `default.nix` 中的 `version` 与 `if isAarch64 then ... else ...` 双哈希块；
+- 通过 GitHub Releases API 获取 `omp`、`sjmcl`、`motrix`、`etcher` 的最新 Tag 和资产 URL，`chatgpt` 读取 OpenAI 稳定 APT 索引，`antigravity` 读取其 updater manifest；
+- 双平台包（`omp`、`chatgpt`、`sjmcl`、`motrix`、`antigravity`）实测两个平台的 SRI 哈希，改写 `default.nix` 中的 `version` 与 `if isAarch64 then ... else ...` 双哈希块；
 - `etcher` 只有 amd64 Deb，`update_package` 的 arm64 资产参数传 `-`，脚本改写单个 `hash = "sha256-...";` 行并跳过 aarch64 求值；
 - `chatgpt` 由 `update_apt_package` 处理：解析 `Packages` 的 `Version`/`Filename`，实测两个 deb 的 SRI 哈希后改写同一个双哈希块；
-- 更新后始终构建 `omp` 和 `chatgpt`，并构建任何其他发生变更的包；任一构建或冒烟测试失败则工作流终止，不提交；
+- `antigravity` 由 `update_antigravity_package` 处理：从 manifest 的 `version` 与产物 URL 里的 release id（`<version>-<build>`）得到版本与构建号，实测 `linux-x64`/`linux-arm` 两个 tarball 的 SRI 哈希后改写 `version`、`build` 行和双哈希块；
+- 更新后始终构建 `omp` 和 `chatgpt`，并构建任何其他发生变更的包（包括 `antigravity`）；任一构建或冒烟测试失败则工作流终止，不提交；
 - 全部通过后提交 `chore: auto update binaries [skip ci]` 并推送到 `main`。
 
 脚本依赖 devShell 提供的 `gh`、`curl`、`jq`、`python3`、`git` 和 `nix`，workflow 不额外安装这些工具。表达式的 `version` 行和双哈希块布局是脚本的解析约定；修改布局时必须同步更新脚本。
@@ -187,6 +193,16 @@ nix eval .#packages.aarch64-linux.motrix.drvPath
 - 用 `appimageTools.wrapType2` 提供 FHS 运行时；desktop 文件与图标直接从 AppImage 内容安装，并把 `Exec=AppRun` 改成 `Exec=motrix`，否则启动器找不到命令。
 - 生成的 wrapper 通过 `bubblewrap` 创建 FHS 沙箱，需要非特权 user namespace。Ubuntu 24.04+ 用 AppArmor 限制了它（`kernel.apparmor_restrict_unprivileged_userns=1`），冒烟测试会直接死在 `bwrap: setting up uid map: Permission denied`；CI 因此先关掉该限制再构建。
 - 2.x 是上游重写版（Electron 45），与 nixpkgs 中的 1.8.19 表达式不是同一套资产布局。
+
+### antigravity
+
+- Google 不发布 GitHub Release。版本号与构建号来自 `https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-x64-linux.yml`：`version` 是语义版本，产物 URL 路径中的 release id 是 `<version>-<build>`；两个 Linux tarball 位于 `https://storage.googleapis.com/antigravity-public/antigravity-hub/<release>/linux-{x64,arm}/Antigravity.tar.gz`。
+- 表达式把 `version` 与 `build` 分开保存，URL 用 `"${version}-${build}"` 组合；自动更新脚本依赖这两个独立行，改布局时必须同步修改脚本。
+- tarball 是 Electron 应用，根目录名随架构为 `Antigravity-x64` / `Antigravity-arm64`；Nix 会自动把它识别为 `sourceRoot`。
+- tarball 不带 `.desktop` 和图标；图标从 `resources/app.asar` 里的 `icon.png` 提取，desktop entry 用 `makeDesktopItem` 生成。
+- `chrome-sandbox` 在 Debian 包里是 setuid helper；Nix store 无法保留 setuid，保留一个不可用的 helper 会让 Chromium 退出。安装时删除该文件，让 Electron 使用非特权 user namespace 沙箱，不要加 `--no-sandbox`。
+- Electron 通过 `dlopen` 加载 `libEGL`/`libGL`，不会走可执行文件的 RUNPATH；launch wrapper 把 `libglvnd` 和 `${addDriverRunpath.driverLink}/lib` 加进 `LD_LIBRARY_PATH`。`libnotify`、`libpulseaudio`、`libsecret`、`pipewire` 通过 `runtimeDependencies` 补进 RPATH。
+- 自带 updater 以 AppImage 为目标；从 tarball 安装时它记录 `APPIMAGE env is not defined`，不会替换 Nix store 里的文件。升级由本仓库的自动更新负责。
 
 ### etcher
 
