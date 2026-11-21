@@ -55,14 +55,14 @@ let
   arch = if stdenv.hostPlatform.isAarch64 then "arm64" else "x64";
   hash =
     if stdenv.hostPlatform.isAarch64 then
-      "sha256-RayTtGGDNuRXRA/Z94gvglfLQ0uOzsD0KObd6+Viow4="
+      "sha256-kfMc5Qx5XgVx55IlERGf8+evwu5PZAqX1p260gY8GGY="
     else
-      "sha256-q1jo/8I1WBi+/mnR6wqIl+PnXyQ+xC65PPLkFrxXYNM=";
+      "sha256-R4xo+Gye9hpQIYWjnpzuxmsSdqalOxkaGbDZzoaYNts=";
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "antigravity";
-  version = "2.33.1";
-  build = "5402359824777216";
+  version = "2.34.0";
+  build = "5887025308631040";
 
   src = fetchurl {
     url = "https://storage.googleapis.com/antigravity-public/antigravity-hub/${finalAttrs.version}-${finalAttrs.build}/linux-${arch}/Antigravity.tar.gz";
