@@ -198,6 +198,7 @@ build_package() {
 
   case "$pkg" in
     omp) "./result-$pkg/bin/omp" --version ;;
+    pi) "./result-$pkg/bin/pi" --version ;;
     chatgpt)
       # chatgpt is an Electron GUI: --version prints the runtime version when
       # it works, but a window launch that hits the timeout also counts as a
@@ -395,6 +396,11 @@ PY
 
 update_apt_package chatgpt pkgs/deb/chatgpt/default.nix
 update_antigravity_package pkgs/binaries/antigravity/default.nix
+# pi's Linux release assets are named by architecture only, so the asset names
+# contain no version placeholder.
+update_package \
+  pi earendil-works/pi pkgs/fhs/pi/default.nix v \
+  pi-linux-arm64.tar.gz pi-linux-x64.tar.gz
 update_package \
   omp can1357/oh-my-pi pkgs/binaries/omp/default.nix v \
   omp-linux-arm64 omp-linux-x64

@@ -9,6 +9,7 @@
 | `pkgs/binaries/<name>/default.nix` | 裸二进制、tarball 中的二进制、自解压 portable ELF |
 | `pkgs/deb/<name>/default.nix` | Debian 包解包/修补后安装 |
 | `pkgs/appimages/<name>/default.nix` | AppImage 包装 |
+| `pkgs/fhs/<name>/default.nix` | 需要标准 FHS 路径（`/usr/bin`、`/bin`）的程序 |
 | `devshell.nix` | 维护工具集合，flake 和 `shell.nix` 共用 |
 | `flake.nix` | `packages.${system}`、`overlays.default`、`devShells` |
 
@@ -25,6 +26,7 @@
 - 版本更新必须同时更新 `version`、资产 URL 模式、每个平台的哈希。
 - 上游只发布 x86_64 资产时（如 `etcher`），表达式只保留一个 `hash = "sha256-...";` 行，并用 `meta.platforms` 限制平台；自动更新脚本用 `-` 占位表示缺失的 arm64 资产。
 - `chatgpt` 没有 GitHub Release：版本与 deb 路径取自 `https://persistent.oaistatic.com/codex-app-prod/linux/deb` 的 `dists/stable/main/binary-{amd64,arm64}/Packages`，两个架构的 `Version` 必须一致，`Filename` 必须与表达式里的 URL 模板一致。
+- `pi` 的 Release 资产是 `pi-linux-{arm64,x64}.tar.gz`，里面是 Bun 单文件可执行程序加同级资源目录；表达式用双架构哈希块，自动更新脚本按架构名取资产。
 - `antigravity` 没有 GitHub Release：版本与构建号取自 `https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-x64-linux.yml`，产物 URL 为 `https://storage.googleapis.com/antigravity-public/antigravity-hub/<version>-<build>/linux-{x64,arm}/Antigravity.tar.gz`，两个架构共享同一个 release id。
 - `flake.lock` 只固定 nixpkgs；升级 nixpkgs 后重新构建全部包。
 
@@ -84,7 +86,16 @@ dpkg-deb -x package.deb /tmp/pkg-root
 
 如果 Deb 内部还带自解压资源，先确认它的 trailer/布局，再决定是否像 `sjmcl` 一样剥离资源。
 
-### 5. AppImage 兜底
+### 5. FHS 包装
+
+程序把 `/bin/bash`、`/usr/bin/python3`、`/usr/bin/node` 等绝对路径写死，或用 Nix 无法预知的方式 `dlopen`/执行子进程时，用 `buildFHSEnv` 包一层，不要逐个打补丁：
+
+- `runScript` 保持上游命令名，使 `$out/bin/<name>` 与原程序同名。
+- `targetPkgs` 里放程序本身和它运行时会调用的工具；FHS 已提供 `bash`、`coreutils`、`findutils`、`sed`、`grep`、`awk`、`tar`、`gzip`、`bzip2`、`xz`、`less`，不要重复列。
+- 插件的运行时不归本仓库声明：不要添加插件列表、配置文件或 NixOS module；只保证 `/usr/bin` 里有足够常用的工具。
+- `pi` 是现成例子：`pkgs/fhs/pi/default.nix`。
+
+### 6. AppImage 兜底
 
 优先：
 
@@ -99,7 +110,7 @@ appimageTools.wrapType2 {
 
 如果补依赖超过 5 个仍然运行报错，放弃逐个补库，改用 `buildFHSEnv` 套壳，并在包注释中写明原因和已验证的启动方式。
 
-### 6. 构建验证
+### 7. 构建验证
 
 每次改动至少执行：
 
@@ -122,6 +133,9 @@ xvfb-run -a timeout 20 ./result-etcher/bin/balena-etcher --version
 
 nix build .#antigravity --out-link result-antigravity
 xvfb-run -a timeout 20 ./result-antigravity/bin/antigravity --version
+
+nix build .#pi --out-link result-pi
+timeout 30 ./result-pi/bin/pi --version
 ```
 
 GUI 程序会把 `--version` 当作普通参数并打开窗口，`timeout` 返回 124 说明启动成功；其他非零状态才算失败。
@@ -134,27 +148,40 @@ nix eval .#packages.aarch64-linux.chatgpt.drvPath
 nix eval .#packages.aarch64-linux.sjmcl.drvPath
 nix eval .#packages.aarch64-linux.motrix.drvPath
 nix eval .#packages.aarch64-linux.antigravity.drvPath
+nix eval .#packages.aarch64-linux.pi.drvPath
 ```
 
 `etcher` 没有 aarch64 Linux 产物，不参与 aarch64 求值；确认 `meta.platforms` 仍为 `[ "x86_64-linux" ]`。
 
 `nix flake check` 可选；它不会替代实际构建和冒烟测试。
 
-### 7. 自动更新
+### 8. 自动更新
 
 `.github/workflows/auto-update.yml` 每天在 UTC 00:00 和 12:00 各执行一次 `scripts/auto-update.sh`，运行环境为 `nix develop`：
 
-- 通过 GitHub Releases API 获取 `omp`、`sjmcl`、`motrix`、`etcher` 的最新 Tag 和资产 URL，`chatgpt` 读取 OpenAI 稳定 APT 索引，`antigravity` 读取其 updater manifest；
-- 双平台包（`omp`、`chatgpt`、`sjmcl`、`motrix`、`antigravity`）实测两个平台的 SRI 哈希，改写 `default.nix` 中的 `version` 与 `if isAarch64 then ... else ...` 双哈希块；
+- 通过 GitHub Releases API 获取 `omp`、`pi`、`sjmcl`、`motrix`、`etcher` 的最新 Tag 和资产 URL，`chatgpt` 读取 OpenAI 稳定 APT 索引，`antigravity` 读取其 updater manifest；
+- 双平台包（`omp`、`pi`、`chatgpt`、`sjmcl`、`motrix`、`antigravity`）实测两个平台的 SRI 哈希，改写 `default.nix` 中的 `version` 与 `if isAarch64 then ... else ...` 双哈希块；
 - `etcher` 只有 amd64 Deb，`update_package` 的 arm64 资产参数传 `-`，脚本改写单个 `hash = "sha256-...";` 行并跳过 aarch64 求值；
 - `chatgpt` 由 `update_apt_package` 处理：解析 `Packages` 的 `Version`/`Filename`，实测两个 deb 的 SRI 哈希后改写同一个双哈希块；
 - `antigravity` 由 `update_antigravity_package` 处理：从 manifest 的 `version` 与产物 URL 里的 release id（`<version>-<build>`）得到版本与构建号，实测 `linux-x64`/`linux-arm` 两个 tarball 的 SRI 哈希后改写 `version`、`build` 行和双哈希块；
-- 更新后始终构建 `omp` 和 `chatgpt`，并构建任何其他发生变更的包（包括 `antigravity`）；任一构建或冒烟测试失败则工作流终止，不提交；
+- 更新后始终构建 `omp` 和 `chatgpt`，并构建任何其他发生变更的包（包括 `antigravity`、`pi`）；任一构建或冒烟测试失败则工作流终止，不提交；
 - 全部通过后提交 `chore: auto update binaries [skip ci]` 并推送到 `main`。
 
 脚本依赖 devShell 提供的 `gh`、`curl`、`jq`、`python3`、`git` 和 `nix`，workflow 不额外安装这些工具。表达式的 `version` 行和双哈希块布局是脚本的解析约定；修改布局时必须同步更新脚本。
 
 ## 已知包的约束
+
+### pi
+
+- 直接打包上游 Release 的 `pi-linux-{arm64,x64}.tar.gz`，两个平台各一个哈希；版本由自动更新脚本跟随最新 Release Tag。
+- tarball 根目录是 `pi/`，`pi/pi` 是 Bun 单文件可执行程序，资源（`export-html/`、`theme/`、`native/`、`photon_rs_bg.wasm`）与它同级。该可执行文件的 ELF interpreter 是标准 `/lib64/ld-linux-*.so.*`，在 FHS 内运行，不需要 `autoPatchelfHook`。
+- 可执行文件带追加 payload，必须 `dontStrip = true;`，否则 strip 会重写 ELF 并破坏 payload。
+- Bun 通过 `process.execPath` 的同级目录找资源；launcher 用 `makeWrapper --set-default PI_PACKAGE_DIR "$out/lib/pi"` 固定包目录，避免经 FHS `/usr/bin` 符号链接启动时找不到资源。
+- 用 `buildFHSEnv` 包一层，`runScript = "pi"`，启动命令仍是 `pi`。FHS 的目的不是补 pi 自身的动态库（Bun 只依赖 glibc），而是让插件写死的 `/usr/bin/*`、`/bin/*` 路径存在。
+- `targetPkgs` 刻意放宽到 Node、Bun、Deno、Python、uv、Go、Rust、git、ripgrep、fd、jq、curl、构建工具链和常用归档/媒体工具。插件不受本仓库控制；不要为了瘦身删减列表，否则硬编码路径的插件会重新失效。
+- `libxcb` 是 pi 自带 `linux-platform-x11.node` 的运行时依赖；不要删除。
+- 不添加声明式插件安装、插件配置或 NixOS module。插件由 pi 在运行时自行安装；本包只提供 FHS 根和 `/usr/bin` 工具表面。
+- 插件的 `HOME`、网络和缓存仍来自宿主；FHS 只改变根文件系统布局。
 
 ### omp
 
@@ -226,7 +253,7 @@ nix eval .#packages.aarch64-linux.antigravity.drvPath
 
 ## 风格
 
-- 包文件使用 `stdenv.mkDerivation (finalAttrs: { ... })`，`version` 只写一次。
+- 包文件使用 `stdenv.mkDerivation (finalAttrs: { ... })` 或 `buildFHSEnv { ... }`，`version` 只写一次。
 - 平台分支集中在文件顶部 `let` 中，URL/哈希/interpreter 一起映射，避免在构建阶段散落 `if`。
 - 注释只解释上游产物的真实布局、为何做某个修补、以及不明显的运行时依赖；不要复述 Nix 语法。
 - 保持 `nixfmt` 格式：`nix fmt .`。

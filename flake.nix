@@ -23,6 +23,7 @@
     {
       packages = forAllSystems (system: {
         omp = (pkgsFor system).callPackage ./pkgs/binaries/omp { };
+        pi = (pkgsFor system).callPackage ./pkgs/fhs/pi { };
         chatgpt = (pkgsFor system).callPackage ./pkgs/deb/chatgpt { };
         sjmcl = (pkgsFor system).callPackage ./pkgs/binaries/sjmcl { };
         motrix = (pkgsFor system).callPackage ./pkgs/appimages/motrix { };
@@ -34,6 +35,7 @@
         final: prev:
         prev.lib.optionalAttrs prev.stdenv.hostPlatform.isLinux {
           omp = final.callPackage ./pkgs/binaries/omp { };
+          pi = final.callPackage ./pkgs/fhs/pi { };
           chatgpt = final.callPackage ./pkgs/deb/chatgpt { };
           sjmcl = final.callPackage ./pkgs/binaries/sjmcl { };
           motrix = final.callPackage ./pkgs/appimages/motrix { };
