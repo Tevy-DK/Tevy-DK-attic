@@ -14,14 +14,14 @@
 # dependency list derived from pi itself.  Plugins are installed by pi at
 # runtime; nothing here configures or declares them.
 let
-  version = "1.6.1";
+  version = "1.7.0";
   isAarch64 = stdenv.hostPlatform.isAarch64;
   assetSuffix = if isAarch64 then "arm64" else "x64";
   hash =
     if isAarch64 then
-      "sha256-r95kHWxZBNJpYN20Ijv1Y7CGDPGg68RDuF3v9n0Eh1M="
+      "sha256-zSCc/JD7lPtLAMzXhajWSkoVT5JOUviP6+ts821cmiQ="
     else
-      "sha256-PH8AcV61EuFlwNqMrTFNc8g7VNW/d0i+Stxhj8g1e2g=";
+      "sha256-QvftZ+g/cn/lHdJ0bVDcRcfReEFZqVGClqKCQCrGj0o=";
 
   pi-unwrapped = stdenv.mkDerivation {
     pname = "pi-unwrapped";
